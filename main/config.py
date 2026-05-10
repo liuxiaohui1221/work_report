@@ -18,13 +18,24 @@ PLAN_DATA_DIR = r"C:\workspace\pywork\work_report\input\202605"
 PLATFORM_DIR = "platform"
 AGENT_DIR = "agent"
 
-# --- 个人Git信息（用于过滤本人提交）---
-MY_GIT_NAME = "xiaohui"
-MY_EXCEL_NAME = "刘小辉"
-MY_EMAIL = "1819800062@qq.com"
-
 # --- 大模型参数 ---
 MAX_DIFF_LINES = 1000  # git diff 输出最大行数，避免超出模型上下文
 MODEL_NAME = "MiniMax-M2.7"
 MAX_TOKENS = 4096
 TEMPERATURE = 0.5
+
+# --- 团队成员配置 ---
+# 角色说明：team_leader=团队负责人, developer=开发人员, architecture=架构师
+# 注意：一个人在不同的项目中可以有不同的角色，多个角色用英文逗号分隔
+# 注意：一个人在一个项目中只会输出一份综合报告，不会按角色输出多份
+TEAM_MEMBERS = [
+    {
+        "name": "刘小辉",
+        "git_name": "xiaohui",
+        "email": "1819800062@qq.com",
+        "project_roles": {
+            "platform": "developer",
+            "agent": "team_leader,architecture"
+        }
+    }
+]

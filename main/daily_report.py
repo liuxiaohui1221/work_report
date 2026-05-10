@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-自动化日报生成脚本
-功能：整合本地规划文件 + 当天Git提交记录和代码变更，通过 MiniMax M2.7 生成日报。
+自动化日报生成脚本（团队版）
+功能：整合本地规划文件 + 团队成员当天Git提交记录和代码变更，按人按项目生成日报。
 使用前：
 1. 安装依赖：pip install openai requests openpyxl python-dotenv anthropic
-2. 修改 config.py 中的配置信息
-3. 修改 prompts/daily_report_prompt.md 可自定义 prompt
+2. 修改 config.py 中的团队成员配置
+3. 修改 prompts 目录下的 md 文件可自定义 prompt
 4. 运行：python daily_report.py
 """
 
@@ -20,13 +20,14 @@ from config import (
     PROJECT1_NAME, PROJECT1_REPO_PATH,
     PROJECT2_NAME, PROJECT2_REPO_PATH, PROJECT2_PHASE, CURRENT_PHASE,
     PLAN_DATA_DIR, PLATFORM_DIR, AGENT_DIR,
-    MY_GIT_NAME, MY_EXCEL_NAME, MY_EMAIL,
-    MAX_DIFF_LINES, MODEL_NAME, MAX_TOKENS, TEMPERATURE
+    MAX_DIFF_LINES, MODEL_NAME, MAX_TOKENS, TEMPERATURE,
+    TEAM_MEMBERS
 )
 
 # Prompt 文件路径
 PROMPTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "prompts")
-DAILY_REPORT_PROMPT_FILE = os.path.join(PROMPTS_DIR, "daily_report_prompt.md")
+PERSONAL_DAILY_PROMPT_FILE = os.path.join(PROMPTS_DIR, "personal_daily_prompt.md")
+PROJECT_DAILY_PROMPT_FILE = os.path.join(PROMPTS_DIR, "project_daily_prompt.md")
 
 load_dotenv()
 
@@ -66,6 +67,56 @@ def get_today_commits(repo_path: str) -> str:
         return "错误: 请确认已安装Git并加入PATH"
     except Exception as e:
         return f"执行Git命令异常: {e}"
+
+
+def get_today_commits_with_hash_for_author(repo_path: str, author_name: str, author_email: str) -> str:
+    """获取指定仓库当日本人的提交记录（包含完整hash用于追溯）"""
+    today = datetime.now().strftime("%Y-%m-%d")
+    tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    cmd = [
+        "git", "-C", repo_path, "log",
+        f"--since={today}", f"--until={tomorrow}",
+        f"--author={author_name}",
+        "--pretty=format:%H | %s | %an | %ad %H:%M",
+        "--date=short"
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        if result.returncode == 0 and result.stdout.strip():
+            lines = result.stdout.strip().split('\n')
+            formatted = []
+            for line in lines:
+                parts = line.split(" | ", 3)
+                if len(parts) == 4:
+                    commit_hash = parts[0][:12]
+                    message = parts[1]
+                    author = parts[2]
+                    date = parts[3]
+                    formatted.append(f"- [{commit_hash}] {message} ({author}, {date})")
+                else:
+                    formatted.append(line)
+            return "\n".join(formatted) if formatted else "今日无提交记录"
+        # 如果name没结果，尝试email
+        cmd[-3] = f"--author={author_email}"
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        if result.returncode == 0 and result.stdout.strip():
+            lines = result.stdout.strip().split('\n')
+            formatted = []
+            for line in lines:
+                parts = line.split(" | ", 3)
+                if len(parts) == 4:
+                    commit_hash = parts[0][:12]
+                    message = parts[1]
+                    author = parts[2]
+                    date = parts[3]
+                    formatted.append(f"- [{commit_hash}] {message} ({author}, {date})")
+                else:
+                    formatted.append(line)
+            return "\n".join(formatted) if formatted else "今日无提交记录"
+        return "今日无提交记录"
+    except Exception as e:
+        return f"获取Git提交记录异常: {e}"
 
 
 def get_today_diff(repo_path: str, author: str = None, max_lines: int = MAX_DIFF_LINES) -> str:
@@ -139,76 +190,133 @@ def read_local_plan_files(project: str = None) -> str:
     return "\n\n".join(content_parts)
 
 
-def get_daily_context() -> str:
-    """整合数据源，生成日报上下文"""
-    git_project1 = get_today_commits(PROJECT1_REPO_PATH)
-    git_project2 = get_today_commits(PROJECT2_REPO_PATH)
+def get_repo_path_for_project(project: str) -> str:
+    """获取项目对应的仓库路径"""
+    if project == PLATFORM_DIR:
+        return PROJECT1_REPO_PATH
+    elif project == AGENT_DIR:
+        return PROJECT2_REPO_PATH
+    return None
 
-    author_name = MY_GIT_NAME
-    author_email = MY_EMAIL
-    diff1 = get_today_diff(PROJECT1_REPO_PATH, author=author_name)
-    diff2 = get_today_diff(PROJECT2_REPO_PATH, author=author_name)
 
-    if diff1.startswith("今日无代码变更") or diff1.startswith("获取Git diff失败"):
-        diff1_email = get_today_diff(PROJECT1_REPO_PATH, author=author_email)
-        if not diff1_email.startswith("获取Git diff失败"):
-            diff1 = diff1_email
-    if diff2.startswith("今日无代码变更") or diff2.startswith("获取Git diff失败"):
-        diff2_email = get_today_diff(PROJECT2_REPO_PATH, author=author_email)
-        if not diff2_email.startswith("获取Git diff失败"):
-            diff2 = diff2_email
+def get_project_name(project: str) -> str:
+    """获取项目显示名称"""
+    if project == PLATFORM_DIR:
+        return PROJECT1_NAME
+    elif project == AGENT_DIR:
+        return PROJECT2_NAME
+    return project
 
-    plan_platform = read_local_plan_files(PLATFORM_DIR)
-    plan_agent = read_local_plan_files(AGENT_DIR)
+
+def generate_personal_context(member: dict, all_members: list) -> str:
+    """生成个人日报上下文"""
+    plan_files = {}
+    git_commits = {}
+    personal_diffs = {}
+    personal_commits_with_hash = {}
+    project_role_map = member["project_roles"]
+
+    for project in project_role_map.keys():
+        plan_files[project] = read_local_plan_files(project)
+        repo_path = get_repo_path_for_project(project)
+        git_commits[project] = get_today_commits(repo_path)
+        # 获取本人的提交记录（含hash用于追溯）
+        personal_commits_with_hash[project] = get_today_commits_with_hash_for_author(repo_path, member["git_name"], member["email"])
+
+        diff = get_today_diff(repo_path, author=member["git_name"])
+        if diff.startswith("今日无代码变更") or diff.startswith("获取Git diff失败"):
+            diff_email = get_today_diff(repo_path, author=member["email"])
+            if not diff_email.startswith("获取Git diff失败"):
+                diff = diff_email
+        personal_diffs[project] = diff
+
+    plan_parts = []
+    for project in project_role_map.keys():
+        plan_parts.append(f"**{get_project_name(project)}（{project}目录）**\n{plan_files[project]}")
+
+    commit_parts = []
+    diff_parts = []
+    personal_commit_parts = []
+    for project in project_role_map.keys():
+        commit_parts.append(f"**{get_project_name(project)}**\n{git_commits[project]}")
+        diff_parts.append(f"**{get_project_name(project)}**\n{personal_diffs[project]}")
+        personal_commit_parts.append(f"**{get_project_name(project)}**\n{personal_commits_with_hash[project]}")
+
+    # 收集所有角色用于prompt
+    all_roles = set()
+    for roles_str in project_role_map.values():
+        for r in roles_str.split(","):
+            all_roles.add(r.strip())
 
     today = datetime.now().strftime("%Y-%m-%d")
 
     context = f"""日期：{today}
 
 ### 项目规划（本地文件）
+{chr(10).join(plan_parts)}
 
-**平台项目（{PLATFORM_DIR}目录）**
-{plan_platform}
+### 今日 Git 提交记录（全部成员）
 
-**Agent项目（{AGENT_DIR}目录）**
-{plan_agent}
+{chr(10).join(commit_parts)}
 
-### 今日 Git 提交记录
+### 本人今日提交记录（含提交号，用于追溯）
 
-**项目: {PROJECT1_NAME}**
-{git_project1}
+{chr(10).join(personal_commit_parts)}
 
-**项目: {PROJECT2_NAME}（{CURRENT_PHASE}）**
-{git_project2}
+### 本人今日代码变更 (Diff)
 
-### 今日本人代码变更 (Diff)
+{chr(10).join(diff_parts)}
 
-**{PROJECT1_NAME}**
-{diff1}
+人员信息：{member['name']}，Git用户名：{member['git_name']}，邮箱：{member['email']}"""
+    return context, ",".join(all_roles)
 
-**{PROJECT2_NAME}**
-{diff2}
 
-要求：
-- {PROJECT1_NAME} 只统计本人工作产出
-- {PROJECT2_NAME} 是本人负责的项目，需体现负责人视角
-请结合提交记录和代码变更，准确描述具体完成的技术工作。"""
+def generate_project_context(project: str, all_members: list) -> str:
+    """生成项目日报上下文"""
+    repo_path = get_repo_path_for_project(project)
+    all_commits = get_today_commits(repo_path)
+    plan_text = read_local_plan_files(project)
+
+    member_diffs = []
+    for member in all_members:
+        if project in member["project_roles"]:
+            diff = get_today_diff(repo_path, author=member["git_name"])
+            if diff.startswith("今日无代码变更") or diff.startswith("获取Git diff失败"):
+                diff_email = get_today_diff(repo_path, author=member["email"])
+                if not diff_email.startswith("获取Git diff失败"):
+                    diff = diff_email
+            roles_str = member["project_roles"][project]
+            role_display = get_roles_display(roles_str)
+            member_diffs.append(f"**{member['name']}（{role_display}）**\n{diff}")
+
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    context = f"""日期：{today}
+
+### 项目：{get_project_name(project)}
+
+### 项目规划（{project}目录）
+{plan_text}
+
+### 今日 Git 提交记录（全部成员）
+{all_commits}
+
+### 各成员代码变更
+{chr(10).join(member_diffs)}
+
+项目角色说明：team_leader=团队负责人, developer=开发人员, architecture=架构师"""
     return context
 
 
-def generate_report(context: str) -> str:
-    """调用大模型生成日报"""
+def generate_report(context: str, prompt_file: str, **format_kwargs) -> str:
+    """调用大模型生成报告"""
     client = anthropic.Anthropic(
         base_url=MINIMAX_BASE_URL,
         api_key=MINIMAX_API_KEY,
     )
 
-    prompt_template = load_prompt_file(DAILY_REPORT_PROMPT_FILE)
-    system_prompt = prompt_template.format(
-        MY_EXCEL_NAME=MY_EXCEL_NAME,
-        MY_GIT_NAME=MY_GIT_NAME,
-        MY_EMAIL=MY_EMAIL
-    )
+    prompt_template = load_prompt_file(prompt_file)
+    system_prompt = prompt_template.format(**format_kwargs)
 
     response = client.messages.create(
         model=MODEL_NAME,
@@ -222,22 +330,75 @@ def generate_report(context: str) -> str:
     return "\n".join(text_blocks)
 
 
+def get_role_display(role: str) -> str:
+    """获取单个角色中文显示"""
+    role_map = {
+        "team_leader": "团队负责人",
+        "developer": "开发人员",
+        "architecture": "架构师"
+    }
+    return role_map.get(role, role)
+
+
+def get_roles_display(roles_str: str) -> str:
+    """获取多个角色中文显示（逗号分隔）"""
+    roles = [r.strip() for r in roles_str.split(",")]
+    displays = [get_role_display(r) for r in roles]
+    return "、".join(displays)
+
+
 if __name__ == "__main__":
     import sys
     sys.stdout.reconfigure(encoding='utf-8')
 
     print(f">>> 正在提取今日数据并调用 {MODEL_NAME} 生成日报...\n")
-    ctx = get_daily_context()
 
     today = datetime.now()
     year_month = today.strftime("%Y%m")
     date_str = today.strftime("%Y-%m-%d")
-    output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "output", year_month)
-    os.makedirs(output_dir, exist_ok=True)
 
-    print("--- 生成日报 ---")
-    report = generate_report(ctx)
+    # 输出目录结构：output/YYYYMM/daily/
+    output_base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "output", year_month)
+    person_output_dir = os.path.join(output_base, "by_person", "daily")
+    project_output_dir = os.path.join(output_base, "by_project", "daily")
+    os.makedirs(person_output_dir, exist_ok=True)
+    os.makedirs(project_output_dir, exist_ok=True)
 
-    with open(os.path.join(output_dir, f"日报_{date_str}.md"), "w", encoding="utf-8") as f:
-        f.write(report)
-    print(f"[OK] 日报已保存: {os.path.join(output_dir, f'日报_{date_str}.md')}")
+    # 1. 生成个人日报
+    print("=== 生成个人日报 ===")
+    for member in TEAM_MEMBERS:
+        ctx, roles_str = generate_personal_context(member, TEAM_MEMBERS)
+        role_display = get_roles_display(roles_str)
+        print(f"--- 为 {member['name']}（{role_display}）生成日报 ---")
+        report = generate_report(
+            ctx,
+            PERSONAL_DAILY_PROMPT_FILE,
+            MY_NAME=member['name'],
+            MY_ROLE=role_display,
+            MY_GIT_NAME=member['git_name'],
+            MY_EMAIL=member['email']
+        )
+        filepath = os.path.join(person_output_dir, f"{member['name']}_日报_{date_str}.md")
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(report)
+        print(f"[OK] {member['name']} 日报已保存")
+
+    # 2. 生成项目日报
+    print("\n=== 生成项目日报 ===")
+    for project in [PLATFORM_DIR, AGENT_DIR]:
+        print(f"--- 为 {get_project_name(project)} 生成日报 ---")
+        ctx = generate_project_context(project, TEAM_MEMBERS)
+        report = generate_report(
+            ctx,
+            PROJECT_DAILY_PROMPT_FILE,
+            PROJECT_NAME=get_project_name(project),
+            PROJECT_DIR=project
+        )
+        filepath = os.path.join(project_output_dir, f"{get_project_name(project)}_日报_{date_str}.md")
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(report)
+        print(f"[OK] {get_project_name(project)} 日报已保存")
+
+    print(f"\n[INFO] 输出目录: {output_base}")
+    print(f"[INFO] 个人日报: {person_output_dir}")
+    print(f"[INFO] 项目日报: {project_output_dir}")

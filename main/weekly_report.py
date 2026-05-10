@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-自动化周报生成脚本（Agent项目负责人视角）
-功能：整合本地规划文件（Excel/Markdown）+ 两个Git仓库的周提交记录 + 代码变更(diff)，
-      通过 MiniMax M2.7 生成结构化周报。
+自动化周报生成脚本（团队版）
+功能：整合本地规划文件 + 团队成员Git提交记录和代码变更，按人按项目生成周报。
 使用前：
 1. 安装依赖：pip install openai requests openpyxl python-dotenv anthropic
-2. 修改 config.py 中的配置信息
+2. 修改 config.py 中的团队成员配置
 3. 修改 prompts 目录下的 md 文件可自定义 prompt
 4. 运行：python weekly_report.py
 """
@@ -21,14 +20,14 @@ from config import (
     PROJECT1_NAME, PROJECT1_REPO_PATH, PROJECT1_PHASE,
     PROJECT2_NAME, PROJECT2_REPO_PATH, PROJECT2_PHASE, CURRENT_PHASE,
     PLAN_DATA_DIR, PLATFORM_DIR, AGENT_DIR,
-    MY_GIT_NAME, MY_EXCEL_NAME, MY_EMAIL,
-    MAX_DIFF_LINES, MODEL_NAME, MAX_TOKENS, TEMPERATURE
+    MAX_DIFF_LINES, MODEL_NAME, MAX_TOKENS, TEMPERATURE,
+    TEAM_MEMBERS
 )
 
 # Prompt 文件路径
 PROMPTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "prompts")
-WEEKLY_REPORT_PROMPT_FILE = os.path.join(PROMPTS_DIR, "weekly_report_prompt.md")
-AGENT_PROJECT_REPORT_PROMPT_FILE = os.path.join(PROMPTS_DIR, "agent_project_report_prompt.md")
+PERSONAL_WEEKLY_PROMPT_FILE = os.path.join(PROMPTS_DIR, "personal_weekly_prompt.md")
+PROJECT_WEEKLY_PROMPT_FILE = os.path.join(PROMPTS_DIR, "project_weekly_prompt.md")
 
 load_dotenv()
 
@@ -45,6 +44,101 @@ def load_prompt_file(filepath: str) -> str:
         return f"错误: Prompt文件未找到: {filepath}"
     except Exception as e:
         return f"错误: 读取Prompt文件失败: {e}"
+
+
+def get_git_commits_with_hash(repo_path: str) -> str:
+    """获取指定 Git 仓库的本周提交记录（包含完整hash用于追溯）"""
+    today = datetime.now()
+    monday = today - timedelta(days=today.weekday())
+    sunday = monday + timedelta(days=6)
+    since = monday.strftime("%Y-%m-%d")
+    until = sunday.strftime("%Y-%m-%d")
+
+    cmd = [
+        "git", "-C", repo_path, "log",
+        f"--since={since}", f"--until={until}",
+        "--pretty=format:%H | %s | %an | %ad",
+        "--date=short"
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        print(f"git repo_path:{repo_path},git result:{result}")
+        if result.returncode == 0:
+            lines = result.stdout.strip().split('\n') if result.stdout.strip() else []
+            if not lines:
+                return "本周无提交记录"
+            # 格式化输出，每行包含 hash、提交信息、作者、日期
+            formatted = []
+            for line in lines:
+                parts = line.split(" | ", 3)
+                if len(parts) == 4:
+                    commit_hash = parts[0][:12]  # 只取前12位
+                    message = parts[1]
+                    author = parts[2]
+                    date = parts[3]
+                    formatted.append(f"- [{commit_hash}] {message} ({author}, {date})")
+                else:
+                    formatted.append(line)
+            return "\n".join(formatted)
+        return f"获取Git日志失败: {result.stderr}"
+    except FileNotFoundError:
+        return "错误: 请确认已安装Git并加入PATH"
+    except Exception as e:
+        return f"执行Git命令异常: {e}"
+
+
+def get_git_commits_with_hash_for_author(repo_path: str, author_name: str, author_email: str) -> str:
+    """获取指定仓库本周本人的提交记录（包含完整hash用于追溯）"""
+    today = datetime.now()
+    monday = today - timedelta(days=today.weekday())
+    sunday = monday + timedelta(days=6)
+    since = monday.strftime("%Y-%m-%d")
+    until = sunday.strftime("%Y-%m-%d")
+
+    # 尝试用name过滤
+    cmd = [
+        "git", "-C", repo_path, "log",
+        f"--since={since}", f"--until={until}",
+        f"--author={author_name}",
+        "--pretty=format:%H | %s | %an | %ad",
+        "--date=short"
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        if result.returncode == 0 and result.stdout.strip():
+            lines = result.stdout.strip().split('\n')
+            formatted = []
+            for line in lines:
+                parts = line.split(" | ", 3)
+                if len(parts) == 4:
+                    commit_hash = parts[0][:12]
+                    message = parts[1]
+                    author = parts[2]
+                    date = parts[3]
+                    formatted.append(f"- [{commit_hash}] {message} ({author}, {date})")
+                else:
+                    formatted.append(line)
+            return "\n".join(formatted) if formatted else "本周无提交记录"
+        # 如果name没结果，尝试email
+        cmd[-3] = f"--author={author_email}"
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        if result.returncode == 0 and result.stdout.strip():
+            lines = result.stdout.strip().split('\n')
+            formatted = []
+            for line in lines:
+                parts = line.split(" | ", 3)
+                if len(parts) == 4:
+                    commit_hash = parts[0][:12]
+                    message = parts[1]
+                    author = parts[2]
+                    date = parts[3]
+                    formatted.append(f"- [{commit_hash}] {message} ({author}, {date})")
+                else:
+                    formatted.append(line)
+            return "\n".join(formatted) if formatted else "本周无提交记录"
+        return "本周无提交记录"
+    except Exception as e:
+        return f"获取Git提交记录异常: {e}"
 
 
 def get_git_commits(repo_path: str) -> str:
@@ -74,11 +168,7 @@ def get_git_commits(repo_path: str) -> str:
 
 
 def get_git_diff(repo_path: str, author: str = None, max_lines: int = MAX_DIFF_LINES) -> str:
-    """
-    获取本周的代码变更（patch diff）。
-    author: 可选，按作者过滤（支持 name 或 email）
-    max_lines: 输出最大行数，超出部分截断
-    """
+    """获取本周的代码变更（patch diff）"""
     today = datetime.now()
     monday = today - timedelta(days=today.weekday())
     sunday = monday + timedelta(days=6)
@@ -88,13 +178,12 @@ def get_git_diff(repo_path: str, author: str = None, max_lines: int = MAX_DIFF_L
     cmd = [
         "git", "-C", repo_path, "log",
         f"--since={since}", f"--until={until}",
-        "--patch",                    # 显示代码变更
-        "--pretty=format:",           # 不输出提交信息，只输出 diff
+        "--patch",
+        "--pretty=format:",
     ]
 
-    # 如果提供了作者，插入过滤条件
     if author:
-        cmd.insert(2, f"--author={author}")  # 插入到 -C repo_path 之后
+        cmd.insert(2, f"--author={author}")
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
@@ -112,14 +201,10 @@ def get_git_diff(repo_path: str, author: str = None, max_lines: int = MAX_DIFF_L
 
 
 def read_local_plan_files(project: str = None) -> str:
-    """从本地读取 Excel 或 Markdown 规划文件，合并为文本
-    project: 可选，按项目过滤（如 'agent' 或 'platform'）
-    """
+    """从本地读取 Excel 或 Markdown 规划文件，合并为文本"""
     base_dir = PLAN_DATA_DIR
     if project:
         base_dir = os.path.join(PLAN_DATA_DIR, project)
-    else:
-        base_dir = PLAN_DATA_DIR
 
     if base_dir and os.path.isdir(base_dir):
         files = []
@@ -156,108 +241,128 @@ def read_local_plan_files(project: str = None) -> str:
     return "\n\n".join(content_parts)
 
 
-def get_agent_report_context() -> str:
-    """整合数据源，生成Agent项目群周报专用的上下文（仅Agent项目）"""
-    git_project2 = get_git_commits(PROJECT2_REPO_PATH)
-
-    author_name = MY_GIT_NAME
-    author_email = MY_EMAIL
-    diff2 = get_git_diff(PROJECT2_REPO_PATH, author=author_name)
-
-    if diff2.startswith("本周无代码变更") or diff2.startswith("获取Git diff失败"):
-        diff2_email = get_git_diff(PROJECT2_REPO_PATH, author=author_email)
-        if not diff2_email.startswith("获取Git diff失败"):
-            diff2 = diff2_email
-
-    plan_text = read_local_plan_files(AGENT_DIR)
-
-    context = f"""### 项目规划（本地文件 - {AGENT_DIR}目录）
-{plan_text}
-
-### 本周 Git 提交记录
-
-**项目: {PROJECT2_NAME}， {CURRENT_PHASE}（{PROJECT2_PHASE}）**
-{git_project2}
-
-### 本周本人代码变更 (Diff)
-
-**项目: {PROJECT2_NAME} 代码变更**
-{diff2}
-
-注意：{PROJECT2_NAME} 是用户本人负责的项目，汇报时需体现负责人视角。
-生成周报时，请结合提交记录和代码变更内容，准确描述具体完成的技术工作，避免模糊措辞。"""
-    return context
+def get_repo_path_for_project(project: str) -> str:
+    """获取项目对应的仓库路径"""
+    if project == PLATFORM_DIR:
+        return PROJECT1_REPO_PATH
+    elif project == AGENT_DIR:
+        return PROJECT2_REPO_PATH
+    return None
 
 
-def get_weekly_context() -> str:
-    """整合所有数据源，生成 AI 输入上下文"""
-    # 获取提交记录（全部作者，保留全局视图）
-    git_project1 = get_git_commits(PROJECT1_REPO_PATH)
-    git_project2_all = get_git_commits(PROJECT2_REPO_PATH)  # Agent项目全部提交（体现团队整体进度）
+def get_project_name(project: str) -> str:
+    """获取项目显示名称"""
+    if project == PLATFORM_DIR:
+        return PROJECT1_NAME
+    elif project == AGENT_DIR:
+        return PROJECT2_NAME
+    return project
 
-    # 获取本人代码变更（使用配置的姓名和邮箱作为 author）
-    author_name = MY_GIT_NAME
-    author_email = MY_EMAIL
-    diff1 = get_git_diff(PROJECT1_REPO_PATH, author=author_name)
-    diff2 = get_git_diff(PROJECT2_REPO_PATH, author=author_name)
 
-    # 如果 name 不唯一，也可以尝试用 email 过滤
-    if diff1.startswith("本周无代码变更") or diff1.startswith("获取Git diff失败"):
-        diff1_email = get_git_diff(PROJECT1_REPO_PATH, author=author_email)
-        if not diff1_email.startswith("获取Git diff失败"):
-            diff1 = diff1_email
-    if diff2.startswith("本周无代码变更") or diff2.startswith("获取Git diff失败"):
-        diff2_email = get_git_diff(PROJECT2_REPO_PATH, author=author_email)
-        if not diff2_email.startswith("获取Git diff失败"):
-            diff2 = diff2_email
+def generate_personal_context(member: dict, all_members: list) -> str:
+    """生成个人周报上下文"""
+    plan_files = {}
+    git_commits = {}
+    personal_diffs = {}
+    personal_commits_with_hash = {}
+    project_role_map = member["project_roles"]
 
-    plan_platform = read_local_plan_files(PLATFORM_DIR)
-    plan_agent = read_local_plan_files(AGENT_DIR)
+    for project in project_role_map.keys():
+        plan_files[project] = read_local_plan_files(project)
+        repo_path = get_repo_path_for_project(project)
+        git_commits[project] = get_git_commits(repo_path)
+        # 获取本人的提交记录（含hash用于追溯）
+        personal_commits_with_hash[project] = get_git_commits_with_hash_for_author(repo_path, member["git_name"], member["email"])
+
+        diff = get_git_diff(repo_path, author=member["git_name"])
+        if diff.startswith("本周无代码变更") or diff.startswith("获取Git diff失败"):
+            diff_email = get_git_diff(repo_path, author=member["email"])
+            if not diff_email.startswith("获取Git diff失败"):
+                diff = diff_email
+        personal_diffs[project] = diff
+
+    plan_parts = []
+    for project in project_role_map.keys():
+        plan_parts.append(f"**{get_project_name(project)}（{project}目录）**\n{plan_files[project]}")
+
+    commit_parts = []
+    diff_parts = []
+    for project in project_role_map.keys():
+        commit_parts.append(f"**{get_project_name(project)}**\n{git_commits[project]}")
+        diff_parts.append(f"**{get_project_name(project)}**\n{personal_diffs[project]}")
+
+    # 收集所有角色用于prompt
+    all_roles = set()
+    for roles_str in project_role_map.values():
+        for r in roles_str.split(","):
+            all_roles.add(r.strip())
+
+    # 本人提交记录（含hash）用于追溯
+    personal_commit_parts = []
+    for project in project_role_map.keys():
+        personal_commit_parts.append(f"**{get_project_name(project)}**\n{personal_commits_with_hash[project]}")
 
     context = f"""### 项目规划（本地文件）
+{chr(10).join(plan_parts)}
 
-**平台项目（{PLATFORM_DIR}目录）**
-{plan_platform}
+### 本周 Git 提交记录（全部成员）
 
-**Agent项目（{AGENT_DIR}目录）**
-{plan_agent}
+{chr(10).join(commit_parts)}
 
-### 本周 Git 提交记录
+### 本人本周提交记录（含提交号，用于追溯）
 
-**项目: {PROJECT1_NAME}（{PROJECT1_PHASE}）**
-{git_project1}
+{chr(10).join(personal_commit_parts)}
 
-**项目: {PROJECT2_NAME}， {CURRENT_PHASE}（{PROJECT2_PHASE}）**
-{git_project2_all}
+### 本人本周代码变更 (Diff)
 
-### 本周本人代码变更 (Diff)
+{chr(10).join(diff_parts)}
 
-**项目: {PROJECT1_NAME} 代码变更**
-{diff1}
+人员信息：{member['name']}，Git用户名：{member['git_name']}，邮箱：{member['email']}"""
+    return context, ",".join(all_roles)
 
-**项目: {PROJECT2_NAME} 代码变更**
-{diff2}
 
-注意：
-- {PROJECT1_NAME} 只统计本人工作产出
-- {PROJECT2_NAME} 是本人负责的项目，需站在负责人视角汇报整体进度和团队贡献
-生成周报时，请结合提交记录和代码变更内容，准确描述具体完成的技术工作，避免模糊措辞。"""
+def generate_project_context(project: str, all_members: list) -> str:
+    """生成项目周报上下文"""
+    repo_path = get_repo_path_for_project(project)
+    all_commits = get_git_commits(repo_path)
+    plan_text = read_local_plan_files(project)
+
+    member_diffs = []
+    for member in all_members:
+        if project in member["project_roles"]:
+            diff = get_git_diff(repo_path, author=member["git_name"])
+            if diff.startswith("本周无代码变更") or diff.startswith("获取Git diff失败"):
+                diff_email = get_git_diff(repo_path, author=member["email"])
+                if not diff_email.startswith("获取Git diff失败"):
+                    diff = diff_email
+            roles_str = member["project_roles"][project]
+            role_display = get_roles_display(roles_str)
+            member_diffs.append(f"**{member['name']}（{role_display}）**\n{diff}")
+
+    context = f"""### 项目：{get_project_name(project)}
+
+### 项目规划（{project}目录）
+{plan_text}
+
+### 本周 Git 提交记录（全部成员）
+{all_commits}
+
+### 各成员代码变更
+{chr(10).join(member_diffs)}
+
+项目角色说明：team_leader=团队负责人, developer=开发人员, architecture=架构师"""
     return context
 
 
-def generate_report(context: str) -> str:
-    """调用 MiniMax M2.7 模型生成周报（向上级汇报）"""
+def generate_report(context: str, prompt_file: str, **format_kwargs) -> str:
+    """调用大模型生成报告"""
     client = anthropic.Anthropic(
         base_url=MINIMAX_BASE_URL,
         api_key=MINIMAX_API_KEY,
     )
 
-    prompt_template = load_prompt_file(WEEKLY_REPORT_PROMPT_FILE)
-    system_prompt = prompt_template.format(
-        MY_EXCEL_NAME=MY_EXCEL_NAME,
-        MY_GIT_NAME=MY_GIT_NAME,
-        MY_EMAIL=MY_EMAIL
-    )
+    prompt_template = load_prompt_file(prompt_file)
+    system_prompt = prompt_template.format(**format_kwargs)
 
     response = client.messages.create(
         model=MODEL_NAME,
@@ -271,25 +376,21 @@ def generate_report(context: str) -> str:
     return "\n".join(text_blocks)
 
 
-def generate_agent_project_report(context: str) -> str:
-    """调用 MiniMax M2.7 模型生成Agent项目群周报"""
-    client = anthropic.Anthropic(
-        base_url=MINIMAX_BASE_URL,
-        api_key=MINIMAX_API_KEY,
-    )
+def get_role_display(role: str) -> str:
+    """获取单个角色中文显示"""
+    role_map = {
+        "team_leader": "团队负责人",
+        "developer": "开发人员",
+        "architecture": "架构师"
+    }
+    return role_map.get(role, role)
 
-    system_prompt = load_prompt_file(AGENT_PROJECT_REPORT_PROMPT_FILE)
 
-    response = client.messages.create(
-        model=MODEL_NAME,
-        max_tokens=MAX_TOKENS,
-        system=system_prompt,
-        messages=[{"role": "user", "content": [{"type": "text", "text": context}]}],
-        temperature=TEMPERATURE,
-    )
-
-    text_blocks = [block.text for block in response.content if block.type == "text"]
-    return "\n".join(text_blocks)
+def get_roles_display(roles_str: str) -> str:
+    """获取多个角色中文显示（逗号分隔）"""
+    roles = [r.strip() for r in roles_str.split(",")]
+    displays = [get_role_display(r) for r in roles]
+    return "、".join(displays)
 
 
 if __name__ == "__main__":
@@ -297,32 +398,55 @@ if __name__ == "__main__":
     sys.stdout.reconfigure(encoding='utf-8')
 
     print(f">>> 正在提取本周数据并调用 {MODEL_NAME} 生成周报...\n")
-    ctx = get_weekly_context()
-    agent_ctx = get_agent_report_context()
 
     today = datetime.now()
     year_month = today.strftime("%Y%m")
     monday = today - timedelta(days=today.weekday())
     week_folder = monday.strftime("%Y%m%d")
     date_str = today.strftime("%Y-%m-%d")
-    output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "output", year_month, week_folder)
-    os.makedirs(output_dir, exist_ok=True)
 
-    # 生成钉钉周报
-    print("--- 生成钉钉周报 ---")
-    report = generate_report(ctx)
+    # 输出目录结构：output/YYYYMM/YYYYMMDD/
+    output_base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "output", year_month, week_folder)
+    person_output_dir = os.path.join(output_base, "by_person")
+    project_output_dir = os.path.join(output_base, "by_project")
+    os.makedirs(person_output_dir, exist_ok=True)
+    os.makedirs(project_output_dir, exist_ok=True)
 
-    with open(os.path.join(output_dir, f"周报_{date_str}.md"), "w", encoding="utf-8") as f:
-        f.write(report)
-    print("[OK] 钉钉周报已保存")
+    # 1. 生成个人周报
+    print("=== 生成个人周报 ===")
+    for member in TEAM_MEMBERS:
+        ctx, roles_str = generate_personal_context(member, TEAM_MEMBERS)
+        role_display = get_roles_display(roles_str)
+        print(f"--- 为 {member['name']}（{role_display}）生成周报 ---")
+        report = generate_report(
+            ctx,
+            PERSONAL_WEEKLY_PROMPT_FILE,
+            MY_NAME=member['name'],
+            MY_ROLE=role_display,
+            MY_GIT_NAME=member['git_name'],
+            MY_EMAIL=member['email']
+        )
+        filepath = os.path.join(person_output_dir, f"{member['name']}_周报_{date_str}.md")
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(report)
+        print(f"[OK] {member['name']} 周报已保存")
 
-    # 生成Agent项目群周报
-    print("--- 生成Agent项目群周报 ---")
-    agent_report = generate_agent_project_report(agent_ctx)
+    # 2. 生成项目周报
+    print("\n=== 生成项目周报 ===")
+    for project in [PLATFORM_DIR, AGENT_DIR]:
+        print(f"--- 为 {get_project_name(project)} 生成周报 ---")
+        ctx = generate_project_context(project, TEAM_MEMBERS)
+        report = generate_report(
+            ctx,
+            PROJECT_WEEKLY_PROMPT_FILE,
+            PROJECT_NAME=get_project_name(project),
+            PROJECT_DIR=project
+        )
+        filepath = os.path.join(project_output_dir, f"{get_project_name(project)}_周报_{date_str}.md")
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(report)
+        print(f"[OK] {get_project_name(project)} 周报已保存")
 
-    with open(os.path.join(output_dir, f"Agent项目群周报_{date_str}.md"), "w", encoding="utf-8") as f:
-        f.write(agent_report)
-    print("[OK] Agent项目群周报已保存")
-
-    print(f"\n[INFO] 输出目录: {output_dir}")
-    print(f"[INFO] 包含文件: .md 共2个文件")
+    print(f"\n[INFO] 输出目录: {output_base}")
+    print(f"[INFO] 个人周报: {person_output_dir}")
+    print(f"[INFO] 项目周报: {project_output_dir}")
