@@ -21,7 +21,7 @@ from config import (
     PROJECT2_NAME, PROJECT2_REPO_PATH, PROJECT2_PHASE, CURRENT_PHASE,
     PLAN_DATA_DIR, PLATFORM_DIR, AGENT_DIR,
     MAX_DIFF_LINES, MODEL_NAME, MAX_TOKENS, TEMPERATURE,
-    TEAM_MEMBERS
+    TEAM_MEMBERS, TEAM_MEMBER_SOURCE, DEFAULT_ROLE
 )
 
 # Prompt 文件路径
@@ -165,6 +165,40 @@ def get_git_commits(repo_path: str) -> str:
         return "错误: 请确认已安装Git并加入PATH"
     except Exception as e:
         return f"执行Git命令异常: {e}"
+
+
+def get_git_authors(repo_path: str) -> list:
+    """获取本周/今日Git提交中的所有唯一作者信息"""
+    today = datetime.now()
+    monday = today - timedelta(days=today.weekday())
+    sunday = monday + timedelta(days=6)
+    since = monday.strftime("%Y-%m-%d")
+    until = sunday.strftime("%Y-%m-%d")
+
+    cmd = [
+        "git", "-C", repo_path, "log",
+        f"--since={since}", f"--until={until}",
+        "--pretty=format:%an|%ae|%an",  # name|email|username
+        "--date=short"
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        if result.returncode == 0:
+            lines = result.stdout.strip().split('\n') if result.stdout.strip() else []
+            # 去重：按 name|email 组合唯一
+            authors = {}
+            for line in lines:
+                parts = line.split("|")
+                if len(parts) >= 3:
+                    name, email, username = parts[0], parts[1], parts[2]
+                    key = f"{name}|{email}"
+                    if key not in authors:
+                        authors[key] = {"name": name, "email": email, "git_name": username}
+            return list(authors.values())
+        return []
+    except Exception as e:
+        print(f"获取Git作者异常: {e}")
+        return []
 
 
 def get_git_diff(repo_path: str, author: str = None, max_lines: int = MAX_DIFF_LINES) -> str:
@@ -393,6 +427,40 @@ def get_roles_display(roles_str: str) -> str:
     return "、".join(displays)
 
 
+def discover_team_members_from_git() -> list:
+    """从Git提交记录自动发现团队成员"""
+    # 收集所有项目的作者
+    all_authors = {}
+    repo_map = {PLATFORM_DIR: PROJECT1_REPO_PATH, AGENT_DIR: PROJECT2_REPO_PATH}
+
+    for project, repo_path in repo_map.items():
+        authors = get_git_authors(repo_path)
+        for author in authors:
+            key = f"{author['name']}|{author['email']}"
+            if key not in all_authors:
+                all_authors[key] = {
+                    "name": author["name"],
+                    "git_name": author["git_name"],
+                    "email": author["email"],
+                    "project_roles": {}
+                }
+            # 该作者在这个项目有提交
+            if project not in all_authors[key]["project_roles"]:
+                all_authors[key]["project_roles"][project] = DEFAULT_ROLE
+
+    return list(all_authors.values())
+
+
+def get_team_members() -> list:
+    """获取团队成员列表，根据配置决定来源"""
+    if TEAM_MEMBER_SOURCE == "git":
+        members = discover_team_members_from_git()
+        print(f"[INFO] 从Git自动发现 {len(members)} 名成员")
+        return members
+    else:
+        return TEAM_MEMBERS
+
+
 if __name__ == "__main__":
     import sys
     sys.stdout.reconfigure(encoding='utf-8')
@@ -412,10 +480,13 @@ if __name__ == "__main__":
     os.makedirs(person_output_dir, exist_ok=True)
     os.makedirs(project_output_dir, exist_ok=True)
 
+    # 获取团队成员（根据配置决定来源）
+    team_members = get_team_members()
+
     # 1. 生成个人周报
     print("=== 生成个人周报 ===")
-    for member in TEAM_MEMBERS:
-        ctx, roles_str = generate_personal_context(member, TEAM_MEMBERS)
+    for member in team_members:
+        ctx, roles_str = generate_personal_context(member, team_members)
         role_display = get_roles_display(roles_str)
         print(f"--- 为 {member['name']}（{role_display}）生成周报 ---")
         report = generate_report(
@@ -435,7 +506,7 @@ if __name__ == "__main__":
     print("\n=== 生成项目周报 ===")
     for project in [PLATFORM_DIR, AGENT_DIR]:
         print(f"--- 为 {get_project_name(project)} 生成周报 ---")
-        ctx = generate_project_context(project, TEAM_MEMBERS)
+        ctx = generate_project_context(project, team_members)
         report = generate_report(
             ctx,
             PROJECT_WEEKLY_PROMPT_FILE,

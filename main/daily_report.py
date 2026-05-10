@@ -21,7 +21,8 @@ from config import (
     PROJECT2_NAME, PROJECT2_REPO_PATH, PROJECT2_PHASE, CURRENT_PHASE,
     PLAN_DATA_DIR, PLATFORM_DIR, AGENT_DIR,
     MAX_DIFF_LINES, MODEL_NAME, MAX_TOKENS, TEMPERATURE,
-    TEAM_MEMBERS
+    TEAM_MEMBERS, TEAM_MEMBER_SOURCE, DEFAULT_ROLE,
+    DAILY_REPORT_MODE, DAILY_REPORT_DAYS, MORNING_HOUR, EVENING_HOUR
 )
 
 # Prompt 文件路径
@@ -46,14 +47,40 @@ def load_prompt_file(filepath: str) -> str:
         return f"错误: 读取Prompt文件失败: {e}"
 
 
-def get_today_commits(repo_path: str) -> str:
-    """获取指定 Git 仓库的当天提交记录（全部作者）"""
-    today = datetime.now().strftime("%Y-%m-%d")
-    tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+def get_report_date_range() -> tuple:
+    """根据配置获取日报统计日期范围
+    返回 (since_date, until_date, description)
+    - auto模式: 早上获取前一天,下午/晚上获取当天
+    - manual模式: 获取最近DAILY_REPORT_DAYS天
+    """
+    now = datetime.now()
+    current_hour = now.hour
 
+    if DAILY_REPORT_MODE == "manual":
+        since = (now - timedelta(days=DAILY_REPORT_DAYS)).strftime("%Y-%m-%d")
+        until = now.strftime("%Y-%m-%d")
+        desc = f"最近{DAILY_REPORT_DAYS}天"
+        return since, until, desc
+    else:
+        # auto模式
+        if current_hour >= MORNING_HOUR and current_hour < EVENING_HOUR:
+            # 早上，获取前一天数据
+            since = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+            until = now.strftime("%Y-%m-%d")
+            desc = "昨天"
+        else:
+            # 下午/晚上，获取当天数据
+            since = now.strftime("%Y-%m-%d")
+            until = (now + timedelta(days=1)).strftime("%Y-%m-%d")
+            desc = "今天"
+        return since, until, desc
+
+
+def get_commits_in_range(repo_path: str, since: str, until: str, desc: str) -> str:
+    """获取指定 Git 仓库的指定日期范围提交记录（全部作者）"""
     cmd = [
         "git", "-C", repo_path, "log",
-        f"--since={today}", f"--until={tomorrow}",
+        f"--since={since}", f"--until={until}",
         "--pretty=format:%h - %s (%an, %ad %H:%M)",
         "--date=short"
     ]
@@ -61,7 +88,7 @@ def get_today_commits(repo_path: str) -> str:
         result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
         print(f"git repo_path:{repo_path},git result:{result}")
         if result.returncode == 0:
-            return result.stdout.strip() or "今日无提交记录"
+            return result.stdout.strip() or f"{desc}无提交记录"
         return f"获取Git日志失败: {result.stderr}"
     except FileNotFoundError:
         return "错误: 请确认已安装Git并加入PATH"
@@ -69,14 +96,17 @@ def get_today_commits(repo_path: str) -> str:
         return f"执行Git命令异常: {e}"
 
 
-def get_today_commits_with_hash_for_author(repo_path: str, author_name: str, author_email: str) -> str:
-    """获取指定仓库当日本人的提交记录（包含完整hash用于追溯）"""
-    today = datetime.now().strftime("%Y-%m-%d")
-    tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+def get_today_commits(repo_path: str) -> str:
+    """获取指定 Git 仓库的当天提交记录（全部作者）"""
+    since, until, desc = get_report_date_range()
+    return get_commits_in_range(repo_path, since, until, desc)
 
+
+def get_commits_with_hash_for_author_in_range(repo_path: str, author_name: str, author_email: str, since: str, until: str, desc: str) -> str:
+    """获取指定仓库指定日期范围本人的提交记录（包含完整hash用于追溯）"""
     cmd = [
         "git", "-C", repo_path, "log",
-        f"--since={today}", f"--until={tomorrow}",
+        f"--since={since}", f"--until={until}",
         f"--author={author_name}",
         "--pretty=format:%H | %s | %an | %ad %H:%M",
         "--date=short"
@@ -96,7 +126,7 @@ def get_today_commits_with_hash_for_author(repo_path: str, author_name: str, aut
                     formatted.append(f"- [{commit_hash}] {message} ({author}, {date})")
                 else:
                     formatted.append(line)
-            return "\n".join(formatted) if formatted else "今日无提交记录"
+            return "\n".join(formatted) if formatted else f"{desc}无提交记录"
         # 如果name没结果，尝试email
         cmd[-3] = f"--author={author_email}"
         result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
@@ -113,20 +143,56 @@ def get_today_commits_with_hash_for_author(repo_path: str, author_name: str, aut
                     formatted.append(f"- [{commit_hash}] {message} ({author}, {date})")
                 else:
                     formatted.append(line)
-            return "\n".join(formatted) if formatted else "今日无提交记录"
-        return "今日无提交记录"
+            return "\n".join(formatted) if formatted else f"{desc}无提交记录"
+        return f"{desc}无提交记录"
     except Exception as e:
         return f"获取Git提交记录异常: {e}"
 
 
-def get_today_diff(repo_path: str, author: str = None, max_lines: int = MAX_DIFF_LINES) -> str:
-    """获取当天的代码变更（patch diff）"""
-    today = datetime.now().strftime("%Y-%m-%d")
-    tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+def get_today_commits_with_hash_for_author(repo_path: str, author_name: str, author_email: str) -> str:
+    """获取指定仓库当日本人的提交记录（包含完整hash用于追溯）"""
+    since, until, desc = get_report_date_range()
+    return get_commits_with_hash_for_author_in_range(repo_path, author_name, author_email, since, until, desc)
 
+
+def get_authors_in_range(repo_path: str, since: str, until: str) -> list:
+    """获取指定日期范围Git提交中的所有唯一作者信息"""
     cmd = [
         "git", "-C", repo_path, "log",
-        f"--since={today}", f"--until={tomorrow}",
+        f"--since={since}", f"--until={until}",
+        "--pretty=format:%an|%ae|%an",
+        "--date=short"
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        if result.returncode == 0:
+            lines = result.stdout.strip().split('\n') if result.stdout.strip() else []
+            authors = {}
+            for line in lines:
+                parts = line.split("|")
+                if len(parts) >= 3:
+                    name, email, username = parts[0], parts[1], parts[2]
+                    key = f"{name}|{email}"
+                    if key not in authors:
+                        authors[key] = {"name": name, "email": email, "git_name": username}
+            return list(authors.values())
+        return []
+    except Exception as e:
+        print(f"获取Git作者异常: {e}")
+        return []
+
+
+def get_today_authors(repo_path: str) -> list:
+    """获取今日Git提交中的所有唯一作者信息"""
+    since, until, desc = get_report_date_range()
+    return get_authors_in_range(repo_path, since, until)
+
+
+def get_diff_in_range(repo_path: str, since: str, until: str, author: str = None, max_lines: int = MAX_DIFF_LINES) -> str:
+    """获取指定日期范围的代码变更（patch diff）"""
+    cmd = [
+        "git", "-C", repo_path, "log",
+        f"--since={since}", f"--until={until}",
         "--patch",
         "--pretty=format:",
     ]
@@ -139,7 +205,7 @@ def get_today_diff(repo_path: str, author: str = None, max_lines: int = MAX_DIFF
         if result.returncode == 0:
             diff = result.stdout.strip()
             if not diff:
-                return "今日无代码变更"
+                return "该时间段无代码变更"
             lines = diff.split('\n')
             if len(lines) > max_lines:
                 return "\n".join(lines[:max_lines]) + "\n... (diff 内容过长，已截断，仅显示前 {} 行)".format(max_lines)
@@ -147,6 +213,12 @@ def get_today_diff(repo_path: str, author: str = None, max_lines: int = MAX_DIFF
         return f"获取Git diff失败: {result.stderr}"
     except Exception as e:
         return f"执行Git diff命令异常: {e}"
+
+
+def get_today_diff(repo_path: str, author: str = None, max_lines: int = MAX_DIFF_LINES) -> str:
+    """获取当天的代码变更（patch diff）"""
+    since, until, desc = get_report_date_range()
+    return get_diff_in_range(repo_path, since, until, author, max_lines)
 
 
 def read_local_plan_files(project: str = None) -> str:
@@ -347,11 +419,45 @@ def get_roles_display(roles_str: str) -> str:
     return "、".join(displays)
 
 
+def discover_team_members_from_git() -> list:
+    """从Git提交记录自动发现团队成员"""
+    all_authors = {}
+    repo_map = {PLATFORM_DIR: PROJECT1_REPO_PATH, AGENT_DIR: PROJECT2_REPO_PATH}
+
+    for project, repo_path in repo_map.items():
+        authors = get_today_authors(repo_path)
+        for author in authors:
+            key = f"{author['name']}|{author['email']}"
+            if key not in all_authors:
+                all_authors[key] = {
+                    "name": author["name"],
+                    "git_name": author["git_name"],
+                    "email": author["email"],
+                    "project_roles": {}
+                }
+            if project not in all_authors[key]["project_roles"]:
+                all_authors[key]["project_roles"][project] = DEFAULT_ROLE
+
+    return list(all_authors.values())
+
+
+def get_team_members() -> list:
+    """获取团队成员列表，根据配置决定来源"""
+    if TEAM_MEMBER_SOURCE == "git":
+        members = discover_team_members_from_git()
+        print(f"[INFO] 从Git自动发现 {len(members)} 名成员")
+        return members
+    else:
+        return TEAM_MEMBERS
+
+
 if __name__ == "__main__":
     import sys
     sys.stdout.reconfigure(encoding='utf-8')
 
-    print(f">>> 正在提取今日数据并调用 {MODEL_NAME} 生成日报...\n")
+    # 获取报表统计日期范围
+    since, until, date_desc = get_report_date_range()
+    print(f">>> 正在提取{date_desc}数据并调用 {MODEL_NAME} 生成日报...\n")
 
     today = datetime.now()
     year_month = today.strftime("%Y%m")
@@ -364,10 +470,13 @@ if __name__ == "__main__":
     os.makedirs(person_output_dir, exist_ok=True)
     os.makedirs(project_output_dir, exist_ok=True)
 
+    # 获取团队成员（根据配置决定来源）
+    team_members = get_team_members()
+
     # 1. 生成个人日报
     print("=== 生成个人日报 ===")
-    for member in TEAM_MEMBERS:
-        ctx, roles_str = generate_personal_context(member, TEAM_MEMBERS)
+    for member in team_members:
+        ctx, roles_str = generate_personal_context(member, team_members)
         role_display = get_roles_display(roles_str)
         print(f"--- 为 {member['name']}（{role_display}）生成日报 ---")
         report = generate_report(
@@ -378,7 +487,8 @@ if __name__ == "__main__":
             MY_GIT_NAME=member['git_name'],
             MY_EMAIL=member['email']
         )
-        filepath = os.path.join(person_output_dir, f"{member['name']}_日报_{date_str}.md")
+        filename = f"{member['name']}_日报_{date_str}_{date_desc}.md"
+        filepath = os.path.join(person_output_dir, filename)
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(report)
         print(f"[OK] {member['name']} 日报已保存")
@@ -387,18 +497,20 @@ if __name__ == "__main__":
     print("\n=== 生成项目日报 ===")
     for project in [PLATFORM_DIR, AGENT_DIR]:
         print(f"--- 为 {get_project_name(project)} 生成日报 ---")
-        ctx = generate_project_context(project, TEAM_MEMBERS)
+        ctx = generate_project_context(project, team_members)
         report = generate_report(
             ctx,
             PROJECT_DAILY_PROMPT_FILE,
             PROJECT_NAME=get_project_name(project),
             PROJECT_DIR=project
         )
-        filepath = os.path.join(project_output_dir, f"{get_project_name(project)}_日报_{date_str}.md")
+        filename = f"{get_project_name(project)}_日报_{date_str}_{date_desc}.md"
+        filepath = os.path.join(project_output_dir, filename)
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(report)
         print(f"[OK] {get_project_name(project)} 日报已保存")
 
-    print(f"\n[INFO] 输出目录: {output_base}")
+    print(f"\n[INFO] 统计范围: {date_desc} ({since} ~ {until})")
+    print(f"[INFO] 输出目录: {output_base}")
     print(f"[INFO] 个人日报: {person_output_dir}")
     print(f"[INFO] 项目日报: {project_output_dir}")
