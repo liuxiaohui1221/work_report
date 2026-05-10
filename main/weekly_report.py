@@ -7,7 +7,8 @@
 使用前：
 1. 安装依赖：pip install openai requests openpyxl python-dotenv anthropic
 2. 修改 config.py 中的配置信息
-3. 运行：python weekly_report.py
+3. 修改 prompts 目录下的 md 文件可自定义 prompt
+4. 运行：python weekly_report.py
 """
 
 import os
@@ -19,16 +20,31 @@ import openpyxl
 from config import (
     PROJECT1_NAME, PROJECT1_REPO_PATH, PROJECT1_PHASE,
     PROJECT2_NAME, PROJECT2_REPO_PATH, PROJECT2_PHASE, CURRENT_PHASE,
-    PLAN_DATA_DIR, MY_GIT_NAME, MY_EXCEL_NAME, MY_EMAIL
+    PLAN_DATA_DIR, PLATFORM_DIR, AGENT_DIR,
+    MY_GIT_NAME, MY_EXCEL_NAME, MY_EMAIL,
+    MAX_DIFF_LINES, MODEL_NAME, MAX_TOKENS, TEMPERATURE
 )
+
+# Prompt 文件路径
+PROMPTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "prompts")
+WEEKLY_REPORT_PROMPT_FILE = os.path.join(PROMPTS_DIR, "weekly_report_prompt.md")
+AGENT_PROJECT_REPORT_PROMPT_FILE = os.path.join(PROMPTS_DIR, "agent_project_report_prompt.md")
 
 load_dotenv()
 
 MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY")
 MINIMAX_BASE_URL = os.getenv("MINIMAX_BASE_URL", "https://api.minimaxi.com/anthropic")
 
-# 新增：diff 输出最大行数，避免超出模型上下文
-MAX_DIFF_LINES = 1000
+
+def load_prompt_file(filepath: str) -> str:
+    """从md文件加载prompt内容"""
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+        return f"错误: Prompt文件未找到: {filepath}"
+    except Exception as e:
+        return f"错误: 读取Prompt文件失败: {e}"
 
 
 def get_git_commits(repo_path: str) -> str:
@@ -95,17 +111,25 @@ def get_git_diff(repo_path: str, author: str = None, max_lines: int = MAX_DIFF_L
         return f"执行Git diff命令异常: {e}"
 
 
-def read_local_plan_files() -> str:
-    """从本地读取 Excel 或 Markdown 规划文件，合并为文本"""
-    if PLAN_DATA_DIR and os.path.isdir(PLAN_DATA_DIR):
-        files = []
-        for f in os.listdir(PLAN_DATA_DIR):
-            if f.endswith('.xlsx') or f.endswith('.md'):
-                files.append(os.path.join(PLAN_DATA_DIR, f))
-        if not files:
-            return "（未在指定目录下找到任何 .xlsx 或 .md 文件）"
+def read_local_plan_files(project: str = None) -> str:
+    """从本地读取 Excel 或 Markdown 规划文件，合并为文本
+    project: 可选，按项目过滤（如 'agent' 或 'platform'）
+    """
+    base_dir = PLAN_DATA_DIR
+    if project:
+        base_dir = os.path.join(PLAN_DATA_DIR, project)
     else:
-        return "（未配置规划文件路径，请设置 PLAN_DATA_DIR）"
+        base_dir = PLAN_DATA_DIR
+
+    if base_dir and os.path.isdir(base_dir):
+        files = []
+        for f in os.listdir(base_dir):
+            if f.endswith('.xlsx') or f.endswith('.md'):
+                files.append(os.path.join(base_dir, f))
+        if not files:
+            return f"（未在 {project or '根目录'} 下找到任何 .xlsx 或 .md 文件）"
+    else:
+        return f"（未配置规划文件路径，请设置 PLAN_DATA_DIR）"
 
     content_parts = []
     for filepath in files:
@@ -132,11 +156,44 @@ def read_local_plan_files() -> str:
     return "\n\n".join(content_parts)
 
 
+def get_agent_report_context() -> str:
+    """整合数据源，生成Agent项目群周报专用的上下文（仅Agent项目）"""
+    git_project2 = get_git_commits(PROJECT2_REPO_PATH)
+
+    author_name = MY_GIT_NAME
+    author_email = MY_EMAIL
+    diff2 = get_git_diff(PROJECT2_REPO_PATH, author=author_name)
+
+    if diff2.startswith("本周无代码变更") or diff2.startswith("获取Git diff失败"):
+        diff2_email = get_git_diff(PROJECT2_REPO_PATH, author=author_email)
+        if not diff2_email.startswith("获取Git diff失败"):
+            diff2 = diff2_email
+
+    plan_text = read_local_plan_files(AGENT_DIR)
+
+    context = f"""### 项目规划（本地文件 - {AGENT_DIR}目录）
+{plan_text}
+
+### 本周 Git 提交记录
+
+**项目: {PROJECT2_NAME}， {CURRENT_PHASE}（{PROJECT2_PHASE}）**
+{git_project2}
+
+### 本周本人代码变更 (Diff)
+
+**项目: {PROJECT2_NAME} 代码变更**
+{diff2}
+
+注意：{PROJECT2_NAME} 是用户本人负责的项目，汇报时需体现负责人视角。
+生成周报时，请结合提交记录和代码变更内容，准确描述具体完成的技术工作，避免模糊措辞。"""
+    return context
+
+
 def get_weekly_context() -> str:
-    """整合所有数据源，生成 AI 输入上下文，包含提交记录和代码变更（仅限本人）"""
+    """整合所有数据源，生成 AI 输入上下文"""
     # 获取提交记录（全部作者，保留全局视图）
     git_project1 = get_git_commits(PROJECT1_REPO_PATH)
-    git_project2 = get_git_commits(PROJECT2_REPO_PATH)
+    git_project2_all = get_git_commits(PROJECT2_REPO_PATH)  # Agent项目全部提交（体现团队整体进度）
 
     # 获取本人代码变更（使用配置的姓名和邮箱作为 author）
     author_name = MY_GIT_NAME
@@ -144,10 +201,8 @@ def get_weekly_context() -> str:
     diff1 = get_git_diff(PROJECT1_REPO_PATH, author=author_name)
     diff2 = get_git_diff(PROJECT2_REPO_PATH, author=author_name)
 
-    # 如果 name 不唯一，也可以尝试用 email 过滤，这里简单起见只用 name
-    # 若 diff 返回为空，可能是作者名不匹配，可以补充 email 过滤
+    # 如果 name 不唯一，也可以尝试用 email 过滤
     if diff1.startswith("本周无代码变更") or diff1.startswith("获取Git diff失败"):
-        # 尝试用 email 再试一次
         diff1_email = get_git_diff(PROJECT1_REPO_PATH, author=author_email)
         if not diff1_email.startswith("获取Git diff失败"):
             diff1 = diff1_email
@@ -156,10 +211,16 @@ def get_weekly_context() -> str:
         if not diff2_email.startswith("获取Git diff失败"):
             diff2 = diff2_email
 
-    plan_text = read_local_plan_files()
+    plan_platform = read_local_plan_files(PLATFORM_DIR)
+    plan_agent = read_local_plan_files(AGENT_DIR)
 
     context = f"""### 项目规划（本地文件）
-{plan_text}
+
+**平台项目（{PLATFORM_DIR}目录）**
+{plan_platform}
+
+**Agent项目（{AGENT_DIR}目录）**
+{plan_agent}
 
 ### 本周 Git 提交记录
 
@@ -167,7 +228,7 @@ def get_weekly_context() -> str:
 {git_project1}
 
 **项目: {PROJECT2_NAME}， {CURRENT_PHASE}（{PROJECT2_PHASE}）**
-{git_project2}
+{git_project2_all}
 
 ### 本周本人代码变更 (Diff)
 
@@ -177,7 +238,9 @@ def get_weekly_context() -> str:
 **项目: {PROJECT2_NAME} 代码变更**
 {diff2}
 
-注意：{PROJECT2_NAME} 是用户本人负责的项目，汇报时需体现负责人视角。
+注意：
+- {PROJECT1_NAME} 只统计本人工作产出
+- {PROJECT2_NAME} 是本人负责的项目，需站在负责人视角汇报整体进度和团队贡献
 生成周报时，请结合提交记录和代码变更内容，准确描述具体完成的技术工作，避免模糊措辞。"""
     return context
 
@@ -189,44 +252,19 @@ def generate_report(context: str) -> str:
         api_key=MINIMAX_API_KEY,
     )
 
-    system_prompt = f"""你是一个技术项目负责人的周报撰写助手。请根据提供的项目规划和本周Git提交记录及代码变更(Diff)，生成符合钉钉周报模板的结构化周报。
-
-## 关键要求
-本周完成工作只统计本人({MY_EXCEL_NAME})的Git提交记录和代码变更，Git用户名：{MY_GIT_NAME}，邮箱：{MY_EMAIL}。
-所有工作项必须来自本人的实际工作产出，不要混入他人的工作内容。
-请结合Git提交记录和代码变更内容进行分析，提炼出具体完成的技术工作（如：实现某功能、修复某bug），避免只写模糊的模块名称。
-
-## 钉钉周报模板结构
-
-### 1. 本周完成工作
-- 简洁列出已完成工作，突出核心产出
-- 按客户项目分段落（招商局、中石油等）
-- Agent项目分阶段描述
-
-### 2. 本周工作总结
-- 一句话概括整体进展 + 状态灯（🟢🟡🔴）
-- 量化产出/里程碑
-- 风险与卡点（如有）
-
-### 3. 下周工作计划
-- 按客户项目列出
-- 承诺式表达，明确交付成果
-
-### 4. 需协调与帮助
-- 列出需协调事项及原因
-
-## 要求
-1. 严格按4段结构输出
-2. 语言简洁，避免流水账
-3. 主动暴露风险和阻塞点
-4. 输出纯Markdown"""
+    prompt_template = load_prompt_file(WEEKLY_REPORT_PROMPT_FILE)
+    system_prompt = prompt_template.format(
+        MY_EXCEL_NAME=MY_EXCEL_NAME,
+        MY_GIT_NAME=MY_GIT_NAME,
+        MY_EMAIL=MY_EMAIL
+    )
 
     response = client.messages.create(
-        model="MiniMax-M2.7",
-        max_tokens=4096,
+        model=MODEL_NAME,
+        max_tokens=MAX_TOKENS,
         system=system_prompt,
         messages=[{"role": "user", "content": [{"type": "text", "text": context}]}],
-        temperature=0.5,
+        temperature=TEMPERATURE,
     )
 
     text_blocks = [block.text for block in response.content if block.type == "text"]
@@ -240,44 +278,14 @@ def generate_agent_project_report(context: str) -> str:
         api_key=MINIMAX_API_KEY,
     )
 
-    system_prompt = """你是一个技术项目负责人，负责向Agent项目群汇报项目整体进展。请根据提供的项目规划和本周Git提交记录及代码变更(Diff)，生成面向项目团队的结构化周报。
-
-## 关键要求
-本周完成工作应反映Agent项目的整体进度和团队贡献，不限于本人。
-作为项目负责人，需站在全局视角汇报整体健康度和里程碑进展。
-结合Git提交记录和代码变更，提炼出具体的技术进展。
-
-## 汇报结构
-
-### 1. 本周完成工作
-- 简洁列出已完成工作，突出核心产出
-- 按客户项目分段落（招商局、中石油等）
-- Agent项目分阶段描述整体进展
-
-### 2. 本周工作总结
-- 一句话概括整体进展 + 状态灯（🟢🟡🔴）
-- 当前阶段标注
-- 关键成果与风险问题
-
-### 3. 下周工作计划
-- 按客户项目列出
-- 承诺式表达，明确交付成果
-
-### 4. 需协调与帮助
-- 列出需协调事项及原因
-
-## 要求
-1. 严格按4段结构输出
-2. 体现全局把控能力
-3. 主动暴露风险和阻塞点
-4. 输出纯Markdown"""
+    system_prompt = load_prompt_file(AGENT_PROJECT_REPORT_PROMPT_FILE)
 
     response = client.messages.create(
-        model="MiniMax-M2.7",
-        max_tokens=4096,
+        model=MODEL_NAME,
+        max_tokens=MAX_TOKENS,
         system=system_prompt,
         messages=[{"role": "user", "content": [{"type": "text", "text": context}]}],
-        temperature=0.5,
+        temperature=TEMPERATURE,
     )
 
     text_blocks = [block.text for block in response.content if block.type == "text"]
@@ -288,8 +296,9 @@ if __name__ == "__main__":
     import sys
     sys.stdout.reconfigure(encoding='utf-8')
 
-    print(">>> 正在提取本周数据并调用 MiniMax M2.7 生成周报...\n")
+    print(f">>> 正在提取本周数据并调用 {MODEL_NAME} 生成周报...\n")
     ctx = get_weekly_context()
+    agent_ctx = get_agent_report_context()
 
     today = datetime.now()
     year_month = today.strftime("%Y%m")
@@ -309,7 +318,7 @@ if __name__ == "__main__":
 
     # 生成Agent项目群周报
     print("--- 生成Agent项目群周报 ---")
-    agent_report = generate_agent_project_report(ctx)
+    agent_report = generate_agent_project_report(agent_ctx)
 
     with open(os.path.join(output_dir, f"Agent项目群周报_{date_str}.md"), "w", encoding="utf-8") as f:
         f.write(agent_report)

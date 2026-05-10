@@ -14,7 +14,17 @@ CURRENT_PHASE = "当前开发阶段：一阶段"
 # --- 本地规划文件目录 ---
 PLAN_DATA_DIR = r"C:\workspace\pywork\work_report\input\202605"
 
+# --- 规划文件子目录名称（与input目录下的子目录名对应） ---
+PLATFORM_DIR = "platform"
+AGENT_DIR = "agent"
+
 # --- 个人Git信息（用于过滤本人提交）---
 MY_GIT_NAME = "xiaohui"
 MY_EXCEL_NAME = "刘小辉"
 MY_EMAIL = "1819800062@qq.com"
+
+# --- 大模型参数 ---
+MAX_DIFF_LINES = 1000  # git diff 输出最大行数，避免超出模型上下文
+MODEL_NAME = "MiniMax-M2.7"
+MAX_TOKENS = 4096
+TEMPERATURE = 0.5
