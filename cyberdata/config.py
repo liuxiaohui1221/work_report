@@ -15,6 +15,6 @@ CURRENT_PHASE = "当前开发阶段：一阶段"
 PLAN_DATA_DIR = r"C:\workspace\pywork\work_report\input\202605"
 
 # --- 个人Git信息（用于过滤本人提交）---
-MY_GIT_NAME = "liuxiaohui"
+MY_GIT_NAME = "xiaohui"
 MY_EXCEL_NAME = "刘小辉"
 MY_EMAIL = "1819800062@qq.com"

@@ -2,9 +2,10 @@
 # -*- coding: utf-8 -*-
 """
 自动化周报生成脚本（Agent项目负责人视角）
-功能：整合本地规划文件（Excel/Markdown）+ 两个Git仓库的周提交记录，通过 MiniMax M2.7 生成结构化周报。
+功能：整合本地规划文件（Excel/Markdown）+ 两个Git仓库的周提交记录 + 代码变更(diff)，
+      通过 MiniMax M2.7 生成结构化周报。
 使用前：
-1. 安装依赖：pip install openai requests openpyxl python-dotenv
+1. 安装依赖：pip install openai requests openpyxl python-dotenv anthropic
 2. 修改 config.py 中的配置信息
 3. 运行：python weekly_report.py
 """
@@ -26,9 +27,12 @@ load_dotenv()
 MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY")
 MINIMAX_BASE_URL = os.getenv("MINIMAX_BASE_URL", "https://api.minimaxi.com/anthropic")
 
+# 新增：diff 输出最大行数，避免超出模型上下文
+MAX_DIFF_LINES = 1000
+
 
 def get_git_commits(repo_path: str) -> str:
-    """获取指定 Git 仓库的本周提交记录"""
+    """获取指定 Git 仓库的本周提交记录（全部作者）"""
     today = datetime.now()
     monday = today - timedelta(days=today.weekday())
     sunday = monday + timedelta(days=6)
@@ -51,6 +55,44 @@ def get_git_commits(repo_path: str) -> str:
         return "错误: 请确认已安装Git并加入PATH"
     except Exception as e:
         return f"执行Git命令异常: {e}"
+
+
+def get_git_diff(repo_path: str, author: str = None, max_lines: int = MAX_DIFF_LINES) -> str:
+    """
+    获取本周的代码变更（patch diff）。
+    author: 可选，按作者过滤（支持 name 或 email）
+    max_lines: 输出最大行数，超出部分截断
+    """
+    today = datetime.now()
+    monday = today - timedelta(days=today.weekday())
+    sunday = monday + timedelta(days=6)
+    since = monday.strftime("%Y-%m-%d")
+    until = sunday.strftime("%Y-%m-%d")
+
+    cmd = [
+        "git", "-C", repo_path, "log",
+        f"--since={since}", f"--until={until}",
+        "--patch",                    # 显示代码变更
+        "--pretty=format:",           # 不输出提交信息，只输出 diff
+    ]
+
+    # 如果提供了作者，插入过滤条件
+    if author:
+        cmd.insert(2, f"--author={author}")  # 插入到 -C repo_path 之后
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        if result.returncode == 0:
+            diff = result.stdout.strip()
+            if not diff:
+                return "本周无代码变更"
+            lines = diff.split('\n')
+            if len(lines) > max_lines:
+                return "\n".join(lines[:max_lines]) + "\n... (diff 内容过长，已截断，仅显示前 {} 行)".format(max_lines)
+            return diff
+        return f"获取Git diff失败: {result.stderr}"
+    except Exception as e:
+        return f"执行Git diff命令异常: {e}"
 
 
 def read_local_plan_files() -> str:
@@ -91,9 +133,29 @@ def read_local_plan_files() -> str:
 
 
 def get_weekly_context() -> str:
-    """整合所有数据源，生成 AI 输入上下文"""
+    """整合所有数据源，生成 AI 输入上下文，包含提交记录和代码变更（仅限本人）"""
+    # 获取提交记录（全部作者，保留全局视图）
     git_project1 = get_git_commits(PROJECT1_REPO_PATH)
     git_project2 = get_git_commits(PROJECT2_REPO_PATH)
+
+    # 获取本人代码变更（使用配置的姓名和邮箱作为 author）
+    author_name = MY_GIT_NAME
+    author_email = MY_EMAIL
+    diff1 = get_git_diff(PROJECT1_REPO_PATH, author=author_name)
+    diff2 = get_git_diff(PROJECT2_REPO_PATH, author=author_name)
+
+    # 如果 name 不唯一，也可以尝试用 email 过滤，这里简单起见只用 name
+    # 若 diff 返回为空，可能是作者名不匹配，可以补充 email 过滤
+    if diff1.startswith("本周无代码变更") or diff1.startswith("获取Git diff失败"):
+        # 尝试用 email 再试一次
+        diff1_email = get_git_diff(PROJECT1_REPO_PATH, author=author_email)
+        if not diff1_email.startswith("获取Git diff失败"):
+            diff1 = diff1_email
+    if diff2.startswith("本周无代码变更") or diff2.startswith("获取Git diff失败"):
+        diff2_email = get_git_diff(PROJECT2_REPO_PATH, author=author_email)
+        if not diff2_email.startswith("获取Git diff失败"):
+            diff2 = diff2_email
+
     plan_text = read_local_plan_files()
 
     context = f"""### 项目规划（本地文件）
@@ -107,7 +169,16 @@ def get_weekly_context() -> str:
 **项目: {PROJECT2_NAME}， {CURRENT_PHASE}（{PROJECT2_PHASE}）**
 {git_project2}
 
-注意：{PROJECT2_NAME} 是用户本人负责的项目，汇报时需体现负责人视角。"""
+### 本周本人代码变更 (Diff)
+
+**项目: {PROJECT1_NAME} 代码变更**
+{diff1}
+
+**项目: {PROJECT2_NAME} 代码变更**
+{diff2}
+
+注意：{PROJECT2_NAME} 是用户本人负责的项目，汇报时需体现负责人视角。
+生成周报时，请结合提交记录和代码变更内容，准确描述具体完成的技术工作，避免模糊措辞。"""
     return context
 
 
@@ -118,11 +189,12 @@ def generate_report(context: str) -> str:
         api_key=MINIMAX_API_KEY,
     )
 
-    system_prompt = f"""你是一个技术项目负责人的周报撰写助手。请根据提供的项目规划和本周Git提交记录，生成符合钉钉周报模板的结构化周报。
+    system_prompt = f"""你是一个技术项目负责人的周报撰写助手。请根据提供的项目规划和本周Git提交记录及代码变更(Diff)，生成符合钉钉周报模板的结构化周报。
 
 ## 关键要求
-本周完成工作只统计本人({MY_EXCEL_NAME})的Git提交记录，Git用户名：{MY_GIT_NAME}，邮箱：{MY_EMAIL}。
+本周完成工作只统计本人({MY_EXCEL_NAME})的Git提交记录和代码变更，Git用户名：{MY_GIT_NAME}，邮箱：{MY_EMAIL}。
 所有工作项必须来自本人的实际工作产出，不要混入他人的工作内容。
+请结合Git提交记录和代码变更内容进行分析，提炼出具体完成的技术工作（如：实现某功能、修复某bug），避免只写模糊的模块名称。
 
 ## 钉钉周报模板结构
 
@@ -168,11 +240,12 @@ def generate_agent_project_report(context: str) -> str:
         api_key=MINIMAX_API_KEY,
     )
 
-    system_prompt = """你是一个技术项目负责人，负责向Agent项目群汇报项目整体进展。请根据提供的项目规划和本周Git提交记录，生成面向项目团队的结构化周报。
+    system_prompt = """你是一个技术项目负责人，负责向Agent项目群汇报项目整体进展。请根据提供的项目规划和本周Git提交记录及代码变更(Diff)，生成面向项目团队的结构化周报。
 
 ## 关键要求
 本周完成工作应反映Agent项目的整体进度和团队贡献，不限于本人。
 作为项目负责人，需站在全局视角汇报整体健康度和里程碑进展。
+结合Git提交记录和代码变更，提炼出具体的技术进展。
 
 ## 汇报结构
 
