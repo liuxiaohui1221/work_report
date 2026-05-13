@@ -17,12 +17,15 @@ from dotenv import load_dotenv
 import anthropic
 import openpyxl
 from config import (
-    PROJECT1_NAME, PROJECT1_REPO_PATH, PROJECT1_PHASE,
-    PROJECT2_NAME, PROJECT2_REPO_PATH, PROJECT2_PHASE, CURRENT_PHASE,
+    PROJECT1_NAME, PROJECT1_REPO_PATH,
+    PROJECT2_NAME, PROJECT2_REPO_PATH,
     PLAN_DATA_DIR, PLATFORM_DIR, AGENT_DIR,
     MAX_DIFF_LINES, MODEL_NAME, MAX_TOKENS, TEMPERATURE,
-    TEAM_MEMBERS, TEAM_MEMBER_SOURCE, DEFAULT_ROLE
+    TEAM_MEMBERS, TEAM_MEMBER_SOURCE, DEFAULT_ROLE,
+    EMAIL_ENABLED, TEAM_MEMBER_SEND_EMAIL,
+    PROJECT_REPORT_RECIPIENTS, DEFAULT_PROJECT_RECIPIENTS
 )
+from email_sender import send_personal_report_email, send_project_report_email
 
 # Prompt 文件路径
 PROMPTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "prompts")
@@ -473,7 +476,7 @@ if __name__ == "__main__":
     week_folder = monday.strftime("%Y%m%d")
     date_str = today.strftime("%Y-%m-%d")
 
-    # 输出目录结构：output/YYYYMM/YYYYMMDD/
+    # 输出目录结构：output/YYYYMM/DD/by_person/ 和 output/YYYYMM/DD/by_project/
     output_base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "output", year_month, week_folder)
     person_output_dir = os.path.join(output_base, "by_person")
     project_output_dir = os.path.join(output_base, "by_project")
@@ -502,6 +505,10 @@ if __name__ == "__main__":
             f.write(report)
         print(f"[OK] {member['name']} 周报已保存")
 
+        # 发送邮件给本人
+        if EMAIL_ENABLED and TEAM_MEMBER_SEND_EMAIL:
+            send_personal_report_email(member, filepath, "周报")
+
     # 2. 生成项目周报
     print("\n=== 生成项目周报 ===")
     for project in [PLATFORM_DIR, AGENT_DIR]:
@@ -517,6 +524,12 @@ if __name__ == "__main__":
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(report)
         print(f"[OK] {get_project_name(project)} 周报已保存")
+
+        # 发送项目报告邮件
+        if EMAIL_ENABLED:
+            recipients = PROJECT_REPORT_RECIPIENTS.get(project, DEFAULT_PROJECT_RECIPIENTS)
+            if recipients:
+                send_project_report_email(get_project_name(project), filepath, "周报", recipients)
 
     print(f"\n[INFO] 输出目录: {output_base}")
     print(f"[INFO] 个人周报: {person_output_dir}")
