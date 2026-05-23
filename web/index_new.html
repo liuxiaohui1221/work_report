@@ -1,0 +1,1297 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能研发助手 - AI R&D Assistant</title>
+    <style>
+        :root {
+            --primary: #4A90E2;
+            --primary-dark: #357ABD;
+            --primary-light: #E8F0FB;
+            --success: #52C41A;
+            --warning: #FAAD14;
+            --error: #F5222D;
+            --text-primary: #262626;
+            --text-secondary: #8C8C8C;
+            --bg-light: #F5F5F5;
+            --bg-white: #FFFFFF;
+            --border: #E8E8E8;
+            --shadow: 0 2px 8px rgba(0,0,0,0.08);
+            --radius: 8px;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--bg-light);
+            color: var(--text-primary);
+            line-height: 1.6;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+            padding: 10px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            height: 48px;
+            box-sizing: border-box;
+        }
+
+        .header-left { display: flex; align-items: center; gap: 16px; }
+        .header h1 { font-size: 20px; font-weight: 600; }
+        .project-select {
+            background: rgba(255,255,255,0.2);
+            border: 1px solid rgba(255,255,255,0.3);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .project-select option { color: var(--text-primary); }
+
+        .header-right { display: flex; align-items: center; gap: 16px; }
+        .user-info { font-size: 14px; opacity: 0.9; }
+        .notification-btn {
+            position: relative;
+            background: none;
+            border: none;
+            color: white;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 8px;
+        }
+        .notification-badge {
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            background: var(--error);
+            color: white;
+            font-size: 11px;
+            min-width: 18px;
+            height: 18px;
+            border-radius: 9px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Layout */
+        .main-container {
+            display: flex;
+            margin-top: 48px;
+            height: calc(100vh - 48px);
+            overflow: hidden;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 70px;
+            background: var(--bg-white);
+            border-right: 1px solid var(--border);
+            padding: 16px 0;
+            flex-shrink: 0;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+
+        .nav-item {
+            padding: 12px 0;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            font-size: 11px;
+            color: var(--text-secondary);
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+            position: relative;
+        }
+        .nav-item:hover { background: var(--bg-light); color: var(--text-primary); }
+        .nav-item.active {
+            background: var(--primary-light);
+            color: var(--primary);
+            border-left-color: var(--primary);
+        }
+        .nav-item .nav-icon { font-size: 20px; }
+        .nav-item .nav-text { display: none; }
+
+        /* Tooltip - hover显示中文名 */
+        .nav-item::after {
+            content: attr(data-title);
+            position: fixed;
+            top: 50%;
+            transform: translateY(-50%);
+            background: #262626;
+            color: white;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 13px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s;
+            z-index: 1000;
+            left: calc(70px + 10px);
+        }
+        .nav-item:hover::after { opacity: 1; }
+
+        /* Chat Container */
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+            background: var(--bg-light);
+            border-radius: var(--radius);
+        }
+
+        /* Content */
+        .content {
+            flex: 1;
+            overflow: hidden;
+            background: var(--bg-light);
+            box-sizing: border-box;
+        }
+
+        /* Dashboard View - 默认显示 */
+        #dashboardView {
+            display: block;
+            overflow-y: auto;
+            height: calc(100vh - 48px);
+            box-sizing: border-box;
+            width: 100%;
+        }
+
+        /* Chat View - 固定输入框，消息区域自己滚动 */
+        #chatView {
+            position: absolute;
+            top: 48px;
+            left: 70px;
+            right: 0;
+            bottom: 0;
+            overflow: hidden;
+            padding: 24px;
+            background: var(--bg-light);
+            box-sizing: border-box;
+            display: none;
+        }
+
+        /* Other Views */
+        #tasksView, #codereviewView, #excelView, #gitView, #settingsView {
+            position: absolute;
+            top: 48px;
+            left: 70px;
+            right: 0;
+            bottom: 0;
+            overflow-y: auto;
+            padding: 24px;
+            background: var(--bg-light);
+            box-sizing: border-box;
+            display: none;
+        }
+
+        /* Dashboard Stats */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .stat-card {
+            background: var(--bg-white);
+            border-radius: var(--radius);
+            padding: 20px;
+            box-shadow: var(--shadow);
+        }
+        .stat-value { font-size: 32px; font-weight: 700; color: var(--primary); }
+        .stat-label { font-size: 13px; color: var(--text-secondary); margin-top: 4px; }
+        .stat-card.warning .stat-value { color: var(--warning); }
+        .stat-card.error .stat-value { color: var(--error); }
+        .stat-card.success .stat-value { color: var(--success); }
+
+        /* Cards */
+        .card {
+            background: var(--bg-white);
+            border-radius: var(--radius);
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: var(--shadow);
+            max-width: 100%;
+            overflow-x: hidden;
+        }
+        .card-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Task List */
+        .task-list { list-style: none; }
+        .task-item {
+            padding: 12px 16px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+        .task-item:hover { border-color: var(--primary); background: var(--primary-light); }
+        .task-item.blocked { border-left: 3px solid var(--error); }
+        .task-item.completed { opacity: 0.7; }
+        .task-priority {
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .priority-high { background: #FFF2F0; color: var(--error); }
+        .priority-medium { background: #FFF7E6; color: var(--warning); }
+        .priority-low { background: #F6FFED; color: var(--success); }
+        .task-status {
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            background: var(--bg-light);
+            color: var(--text-secondary);
+        }
+        .task-title { flex: 1; font-size: 14px; }
+        .task-due { font-size: 12px; color: var(--text-secondary); }
+        .task-assignee { font-size: 12px; color: var(--text-secondary); }
+
+        /* Chat Interface */
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 200px);
+        }
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            background: var(--bg-light);
+            border-radius: var(--radius);
+        }
+        .message {
+            max-width: 75%;
+            margin-bottom: 12px;
+            padding: 12px 16px;
+            border-radius: 16px;
+            font-size: 14px;
+            line-height: 1.5;
+            word-wrap: break-word;
+        }
+        .message.user {
+            background: linear-gradient(135deg, #4A90E2 0%, #357ABD 100%);
+            color: #ffffff;
+            margin-left: auto;
+            border-bottom-right-radius: 4px;
+        }
+        .message.assistant {
+            background: #ffffff;
+            border: 1px solid #e8e8e8;
+            color: #262626;
+            border-bottom-left-radius: 4px;
+        }
+        .message-time { font-size: 11px; opacity: 0.6; margin-top: 6px; color: inherit; }
+        .message-content { line-height: 1.6; color: inherit; }
+        .message-content p { margin-bottom: 8px; }
+        .message-streaming {
+            display: inline-block;
+            color: var(--text-secondary);
+            font-size: 13px;
+            animation: thinking-pulse 1.5s infinite;
+        }
+        @keyframes thinking-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Thinking Block */
+        .thinking-block {
+            background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+            border: 1px solid #fbbf24;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            overflow: hidden;
+        }
+        .thinking-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 12px;
+            color: #92400e;
+        }
+        .thinking-header:hover { background: rgba(251, 191, 36, 0.3); }
+        .thinking-toggle { font-size: 10px; transition: transform 0.2s; }
+        .thinking-content {
+            padding: 0 12px 12px;
+            font-size: 12px;
+            color: #78350f;
+            display: none;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .thinking-block.expanded .thinking-content { display: block; }
+        .thinking-block.expanded .thinking-toggle { transform: rotate(180deg); }
+        .thinking-badge { background: #fbbf24; color: #78350f; padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+
+        .chat-input-area {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+            margin-bottom: 16px;
+            align-items: flex-end;
+            flex-shrink: 0;
+        }
+        .chat-input {
+            flex: 1;
+            padding: 10px 14px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+            resize: none;
+            min-height: 100px;
+            max-height: 150px;
+            font-family: inherit;
+            overflow-y: auto;
+        }
+        .chat-input:focus { border-color: var(--primary); }
+
+        /* Buttons */
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover { background: var(--primary-dark); }
+        .btn-success { background: var(--success); color: white; }
+        .btn-danger { background: var(--error); color: white; }
+        .btn-secondary { background: var(--bg-light); color: var(--text-primary); border: 1px solid var(--border); }
+
+        /* Code Review */
+        .code-review-container { display: flex; gap: 20px; height: calc(100vh - 200px); }
+        .code-list { width: 300px; overflow-y: auto; }
+        .code-item {
+            padding: 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .code-item:hover { border-color: var(--primary); }
+        .code-item.selected { border-color: var(--primary); background: var(--primary-light); }
+        .code-item.pending { border-left: 3px solid var(--warning); }
+        .code-item.approved { border-left: 3px solid var(--success); }
+        .code-item.rejected { border-left: 3px solid var(--error); }
+        .code-filename { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+        .code-action { font-size: 12px; color: var(--text-secondary); }
+        .code-status { font-size: 12px; margin-top: 4px; }
+        .code-preview {
+            flex: 1;
+            background: var(--bg-white);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .code-preview-header {
+            padding: 12px 16px;
+            background: var(--bg-light);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .code-preview-content {
+            flex: 1;
+            overflow: auto;
+            padding: 16px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 13px;
+            white-space: pre-wrap;
+            background: #1e1e1e;
+            color: #d4d4d4;
+        }
+        .code-actions {
+            padding: 12px 16px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 12px;
+        }
+
+        /* Task Edit Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 200;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s;
+        }
+        .modal-overlay.active { opacity: 1; visibility: visible; }
+        .modal {
+            background: var(--bg-white);
+            border-radius: var(--radius);
+            padding: 24px;
+            width: 90%;
+            max-width: 600px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .modal-header { font-size: 18px; font-weight: 600; margin-bottom: 20px; }
+        .form-group { margin-bottom: 16px; }
+        .form-label { display: block; font-weight: 500; margin-bottom: 6px; font-size: 14px; }
+        .form-input, .form-select, .form-textarea {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        .form-textarea { min-height: 100px; resize: vertical; }
+        .modal-footer { display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            top: 80px;
+            right: 24px;
+            padding: 12px 20px;
+            background: var(--bg-white);
+            border-radius: var(--radius);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 300;
+            transform: translateX(120%);
+            transition: transform 0.3s;
+            font-size: 14px;
+        }
+        .toast.show { transform: translateX(0); }
+        .toast.success { border-left: 4px solid var(--success); }
+        .toast.error { border-left: 4px solid var(--error); }
+
+        /* Blockers Section */
+        .blocker-item {
+            padding: 12px;
+            background: #FFF2F0;
+            border: 1px solid #FFA39E;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .blocker-info { flex: 1; }
+        .blocker-task { font-weight: 500; margin-bottom: 4px; }
+        .blocker-owner { font-size: 12px; color: var(--text-secondary); }
+        .remind-btn { font-size: 12px; }
+
+        /* Messages Panel */
+        .messages-panel {
+            position: fixed;
+            top: 48px;
+            right: 0;
+            bottom: 0;
+            width: 360px;
+            background: var(--bg-white);
+            border-left: 1px solid var(--border);
+            transform: translateX(100%);
+            transition: transform 0.3s;
+            z-index: 90;
+            display: flex;
+            flex-direction: column;
+        }
+        .messages-panel.open { transform: translateX(0); }
+        .messages-header {
+            padding: 16px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .messages-list { flex: 1; overflow-y: auto; }
+        .message-item {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+        }
+        .message-item:hover { background: var(--bg-light); }
+        .message-item.unread { background: var(--primary-light); }
+        .message-title { font-weight: 500; font-size: 14px; margin-bottom: 4px; }
+        .message-content { font-size: 13px; color: var(--text-secondary); }
+        .message-time { font-size: 11px; color: var(--text-secondary); margin-top: 4px; }
+
+        /* Loading */
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            color: var(--text-secondary);
+        }
+        .spinner {
+            width: 24px; height: 24px;
+            border: 3px solid var(--border);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 12px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-secondary);
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+            .code-review-container { flex-direction: column; }
+            .code-list { width: 100%; max-height: 200px; }
+        }
+        @media (max-width: 768px) {
+            .sidebar { display: none; }
+            .content { margin-left: 0; padding: 16px; }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <div class="header-left">
+            <h1>🤖 智能研发助手</h1>
+            <select class="project-select" id="projectSelect">
+                <option value="">选择项目</option>
+            </select>
+        </div>
+        <div class="header-right">
+            <span class="user-info" id="userInfo">开发者</span>
+            <button class="notification-btn" onclick="toggleMessages()">
+                🔔
+                <span class="notification-badge" id="msgBadge" style="display:none;">0</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Main Container -->
+    <div class="main-container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="nav-item active" data-view="dashboard" data-title="仪表盘" onclick="switchView('dashboard')">
+                <span class="nav-icon">📊</span>
+                <span class="nav-text">仪表盘</span>
+            </div>
+            <div class="nav-item" data-view="tasks" data-title="任务列表" onclick="switchView('tasks')">
+                <span class="nav-icon">📋</span>
+                <span class="nav-text">任务列表</span>
+            </div>
+            <div class="nav-item" data-view="chat" data-title="AI 对话" onclick="switchView('chat')">
+                <span class="nav-icon">💬</span>
+                <span class="nav-text">AI 对话</span>
+            </div>
+            <div class="nav-item" data-view="codereview" data-title="代码审核" onclick="switchView('codereview')">
+                <span class="nav-icon">📝</span>
+                <span class="nav-text">代码审核</span>
+            </div>
+            <div class="nav-item" data-view="excel" data-title="Excel管理" onclick="switchView('excel')">
+                <span class="nav-icon">📁</span>
+                <span class="nav-text">Excel管理</span>
+            </div>
+            <div class="nav-item" data-view="git" data-title="Git项目" onclick="switchView('git')">
+                <span class="nav-icon">📦</span>
+                <span class="nav-text">Git项目</span>
+            </div>
+            <div class="nav-item" data-view="settings" data-title="设置" onclick="switchView('settings')">
+                <span class="nav-icon">⚙️</span>
+                <span class="nav-text">设置</span>
+            </div>
+        </div>
+
+        <!-- Content -->
+        <div class="content">
+            <!-- Dashboard View -->
+            <div id="dashboardView">
+                <div class="stats-grid" id="statsGrid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="statTotal">0</div>
+                        <div class="stat-label">总任务数</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="statInProgress">0</div>
+                        <div class="stat-label">进行中</div>
+                    </div>
+                    <div class="stat-card warning">
+                        <div class="stat-value" id="statBlocked">0</div>
+                        <div class="stat-label">被阻塞</div>
+                    </div>
+                    <div class="stat-card success">
+                        <div class="stat-value" id="statCompleted">0</div>
+                        <div class="stat-label">已完成</div>
+                    </div>
+                </div>
+
+                <!-- My Tasks -->
+                <div class="card">
+                    <div class="card-title">📋 我的任务</div>
+                    <div id="myTasksList">
+                        <div class="loading"><div class="spinner"></div>加载中...</div>
+                    </div>
+                </div>
+
+                <!-- Blockers -->
+                <div class="card">
+                    <div class="card-title">🚧 阻塞我的任务</div>
+                    <div id="blockersList">
+                        <div class="empty-state">暂无阻塞任务</div>
+                    </div>
+                </div>
+
+<!-- Recent Bugs -->
+                <div class="card">
+                    <div class="card-title">🐛 待处理Bug</div>
+                    <div id="bugsList">
+                        <div class="empty-state">暂无待处理Bug</div>
+                    </div>
+                </div>
+
+                <!-- Git Projects -->
+                <div class="card">
+                    <div class="card-title">📦 Git项目</div>
+                    <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;">
+                        <input type="text" class="form-input" id="gitProjectPath" placeholder="输入Git仓库路径" style="flex:1;min-width:0;">
+                        <button class="btn btn-secondary" id="browseGitPathBtnDash" title="选择文件夹">📁</button>
+                        <input type="file" id="gitDirPickerDash" webkitdirectory style="display:none;">
+                        <button class="btn btn-primary" onclick="importGitProject()">导入</button>
+                    </div>
+                    <div id="gitProjectsList" style="display:flex;flex-direction:column;gap:8px;"></div>
+                </div>
+
+                <!-- Project Members -->
+                <div class="card" id="membersCard" style="display:none;">
+                    <div class="card-title">👥 项目成员</div>
+                    <div id="projectMembersList" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tasks View -->
+        <div id="tasksView" style="display:none;">
+            <div class="card">
+                <div class="card-title">任务筛选</div>
+                <div style="display:flex;gap:12px;margin-bottom:16px;">
+                    <select class="form-select" id="taskFilterStatus" style="width:150px;" onchange="loadTasks()">
+                        <option value="">全部状态</option>
+                        <option value="待认领">待认领</option>
+                        <option value="开发中">开发中</option>
+                        <option value="待联调">待联调</option>
+                        <option value="测试中">测试中</option>
+                        <option value="已完成">已完成</option>
+                        <option value="被阻塞">被阻塞</option>
+                    </select>
+                    <select class="form-select" id="taskFilterPriority" style="width:150px;" onchange="loadTasks()">
+                        <option value="">全部优先级</option>
+                        <option value="紧急">紧急</option>
+                        <option value="高">高</option>
+                        <option value="中">中</option>
+                        <option value="低">低</option>
+                    </select>
+                </div>
+                <div id="tasksList">
+                    <div class="loading"><div class="spinner"></div>加载中...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chat View -->
+        <div id="chatView" style="display:none;">
+            <div class="card">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                    <div class="card-title" style="margin:0;">💬 AI 助手</div>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <select id="chatSessionSelect" class="form-select" style="width:150px;" onchange="switchChatSession(this.value)">
+                            <option value="default">默认会话</option>
+                        </select>
+                        <button class="btn btn-secondary" onclick="newChatSession()" style="padding:6px 12px;font-size:12px;">➕ 新会话</button>
+                    </div>
+                </div>
+                <div id="chatNoProjectBanner" style="display:none;background:#FEF3C7;border:1px solid #FBBF24;border-radius:8px;padding:12px;margin-bottom:12px;">
+                    ⚠️ 请先在顶部选择一个项目，以便AI助手为您提供准确的服务
+                </div>
+                <div class="chat-container">
+                    <div class="chat-messages" id="chatMessages">
+                        <div class="message assistant">
+                            <div>👋 你好！我是AI助手，可以帮你：</div>
+                            <div style="margin-top:8px;">• 添加和管理任务</div>
+                            <div>• 查询项目进度</div>
+                            <div>• 生成和修改代码</div>
+                            <div>• 催促阻塞任务</div>
+                        </div>
+                    </div>
+                    <div class="chat-shortcuts" style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+                        <button class="btn btn-secondary" onclick="quickChat('帮我添加一个任务')" style="font-size:13px;padding:6px 12px;">➕ 添加任务</button>
+                        <button class="btn btn-secondary" onclick="quickChat('查看我的任务进度')" style="font-size:13px;padding:6px 12px;">📊 查询进度</button>
+                        <button class="btn btn-secondary" onclick="quickChat('帮我生成一段代码')" style="font-size:13px;padding:6px 12px;">💻 生成代码</button>
+                        <button class="btn btn-secondary" onclick="quickChat('催促阻塞我的任务')" style="font-size:13px;padding:6px 12px;">🚨 催促阻塞</button>
+                    </div>
+                    <div class="chat-input-area" id="chatInputArea">
+                        <select id="chatModelSelect" class="form-select" style="width:120px;flex-shrink:0;">
+                            <option value="MiniMax-M2.7">MiniMax-M2.7</option>
+                            <option value="gpt-4o">GPT-4o</option>
+                            <option value="claude-3-5">Claude 3.5</option>
+                        </select>
+                        <textarea class="chat-input" id="chatInput"
+                               placeholder="描述您的需求，AI会帮您补充完整...（支持拖拽或粘贴文件）"
+                               onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault();sendMessage();}"></textarea>
+                        <button class="btn btn-primary" onclick="sendMessage()">发送</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Code Review View -->
+        <div id="codereviewView" style="display:none;">
+            <div class="card">
+                <div class="card-title">📝 代码审核 (Human-in-the-Loop)</div>
+                <div class="code-review-container">
+                    <div class="code-list">
+                        <div id="pendingCodesList">
+                            <div class="empty-state">暂无待审核代码</div>
+                        </div>
+                    </div>
+                    <div class="code-preview">
+                        <div class="code-preview-header">
+                            <span id="previewFilename">选择文件查看</span>
+                        </div>
+                        <div class="code-preview-content" id="codePreviewContent">
+                            在左侧选择一个文件预览代码
+                        </div>
+                        <div class="code-actions" id="codeActions" style="display:none;">
+                            <button class="btn btn-success" onclick="approveCode()">✅ 应用代码</button>
+                            <button class="btn btn-danger" onclick="rejectCode()">❌ 取消</button>
+                            <button class="btn btn-secondary" onclick="showModifyModal()">💬 修改意见</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Excel View -->
+        <div id="excelView" style="display:none;">
+            <div class="card">
+                <div class="card-title">📁 Excel任务导入/导出</div>
+                <div style="margin-bottom:16px;display:flex;gap:12px;">
+                    <button class="btn btn-primary" onclick="document.getElementById('excelUpload').click()">
+                        📤 上传Excel
+                    </button>
+                    <input type="file" id="excelUpload" accept=".xlsx" style="display:none;" onchange="handleExcelUpload(this)">
+                    <button class="btn btn-secondary" onclick="downloadTemplate()">📥 下载模板</button>
+                </div>
+                <div id="excelFilesList">
+                    <div class="loading"><div class="spinner"></div>加载中...</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">📊 Excel任务编辑</div>
+                <div id="excelTasksEdit" style="overflow-x:auto;">
+                    <div class="empty-state">请先上传Excel文件</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Git Projects View -->
+        <div id="gitView" style="display:none;">
+            <div class="card" style="margin-bottom:16px;">
+                <div class="card-title">📦 Git项目导入</div>
+                <p style="color:var(--text-secondary);margin-bottom:12px;font-size:13px;">选择本地Git仓库文件夹，系统会自动从git日志中识别项目成员</p>
+                <div style="display:flex;gap:12px;align-items:center;">
+                    <input type="text" class="form-input" id="gitProjectPathInput" placeholder="或直接输入路径" style="flex:1;min-width:0;">
+                    <button class="btn btn-secondary" id="browseGitPathBtn" title="选择文件夹">📁</button>
+                    <input type="file" id="gitDirPicker" webkitdirectory style="display:none;">
+                    <button class="btn btn-primary" onclick="importGitProjectFromView()">导入</button>
+                </div>
+            </div>
+
+            <div class="card" style="margin-bottom:16px;">
+                <div class="card-title">📋 已导入项目目录展示区</div>
+                <div style="overflow-x:auto;">
+                    <table style="width:100%;border-collapse:collapse;min-width:500px;">
+                        <thead>
+                            <tr style="background:var(--bg-light);">
+                                <th style="padding:10px;text-align:left;border-bottom:1px solid var(--border);">项目名称</th>
+                                <th style="padding:10px;text-align:left;border-bottom:1px solid var(--border);">路径</th>
+                                <th style="padding:10px;text-align:center;border-bottom:1px solid var(--border);">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="gitProjectsListView"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card" id="gitMembersCard" style="display:none;">
+                <div class="card-title">👥 项目成员列表</div>
+                <div id="gitProjectMembersName" style="font-weight:600;margin-bottom:12px;color:var(--primary);"></div>
+                <div style="display:flex;flex-wrap:wrap;gap:8px;" id="gitProjectMembersList"></div>
+            </div>
+        </div>
+
+        <!-- Settings View -->
+        <div id="settingsView" style="display:none;">
+            <div class="card">
+                <div class="card-title">🤖 大模型(LLM)配置</div>
+                <p style="color:var(--text-secondary);margin-bottom:20px;">
+                    配置用于AI对话和代码生成的大语言模型
+                </p>
+
+                <div class="form-group">
+                    <label class="form-label">模型提供商</label>
+                    <select class="form-select" id="llmProvider" style="width:250px;" onchange="updateLlmUrl()">
+                        <option value="minimax">MiniMax</option>
+                        <option value="openai">OpenAI</option>
+                        <option value="anthropic">Anthropic</option>
+                        <option value="custom">自定义</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">API Key</label>
+                    <input type="password" class="form-input" id="llmApiKey" placeholder="输入API密钥">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Base URL</label>
+                    <input type="text" class="form-input" id="llmBaseUrl" placeholder="https://api.minimaxi.com/anthropic">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">模型名称</label>
+                    <input type="text" class="form-input" id="llmModel" placeholder="MiniMax-M2.7">
+                </div>
+
+                <div style="margin-top:24px;display:flex;gap:12px;">
+                    <button class="btn btn-primary" onclick="saveLlmConfig()">💾 保存配置</button>
+                    <button class="btn btn-secondary" onclick="testLlmConnection()">🧪 测试连接</button>
+                </div>
+
+                <div id="llmStatus" style="margin-top:16px;display:none;" class="alert"></div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">👤 开发者信息</div>
+                <div class="form-group">
+                    <label class="form-label">开发者ID</label>
+                    <input type="text" class="form-input" id="devId" placeholder="输入开发者ID">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">开发者姓名</label>
+                    <input type="text" class="form-input" id="devName" placeholder="输入开发者姓名">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Git账号</label>
+                    <select class="form-select" id="gitAccountSelect" style="width:250px;">
+                        <option value="">请先导入Git项目</option>
+                    </select>
+                </div>
+                <div style="margin-top:16px;">
+                    <button class="btn btn-primary" onclick="saveDevInfo()">💾 保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        // 全局状态
+        const state = {
+            projectId: null,
+            developerId: null,
+            currentView: 'dashboard',
+            chatSessions: { 'default': [] },
+            currentSession: 'default'
+        };
+
+        function switchView(view) {
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.classList.remove('active');
+                if (item.dataset.view === view) item.classList.add('active');
+            });
+            document.querySelectorAll('[id$="View"]').forEach(v => v.style.display = 'none');
+            const targetView = document.getElementById(view + 'View');
+            if (targetView) {
+                targetView.style.display = 'block';
+                state.currentView = view;
+            }
+            if (view === 'tasks') loadTasks();
+            if (view === 'excel') loadExcelFiles();
+            if (view === 'chat') {
+                const banner = document.getElementById('chatNoProjectBanner');
+                if (banner) banner.style.display = state.projectId ? 'none' : 'block';
+            }
+            if (view === 'git') loadGitProjectsInView();
+        }
+
+        // ========== API Helper ==========
+        async function api(url, options = {}) {
+            const res = await fetch(url, options);
+            if (!res.ok) throw new Error(res.statusText);
+            return res.json();
+        }
+
+        // ========== Load Functions ==========
+        async function loadProjects() {
+            try {
+                const data = await api('/api/tasks/projects');
+                const select = document.getElementById('projectSelect');
+                select.innerHTML = '<option value="">选择项目</option>';
+                data.forEach(p => {
+                    select.innerHTML += `<option value="${p.id}">${p.name}</option>`;
+                });
+            } catch (e) { console.error(e); }
+        }
+
+        async function loadDashboard() {
+            try {
+                const url = '/api/tasks/dashboard/' + (state.developerId || 'default');
+                const data = await api(url);
+                document.getElementById('statTotal').textContent = data.total || 0;
+                document.getElementById('statInProgress').textContent = data.inProgress || 0;
+                document.getElementById('statBlocked').textContent = data.blocked || 0;
+                document.getElementById('statCompleted').textContent = data.completed || 0;
+            } catch (e) { console.error(e); }
+        }
+
+        async function loadTasks() {
+            const list = document.getElementById('tasksList');
+            if (!list) return;
+            try {
+                const data = await api('/api/tasks');
+                if (!data || (typeof data === 'object' && !Array.isArray(data) && data.error)) {
+                    list.innerHTML = '<div class="empty-state">暂无任务</div>';
+                    return;
+                }
+                if (!Array.isArray(data) || data.length === 0) {
+                    list.innerHTML = '<div class="empty-state">暂无任务</div>';
+                    return;
+                }
+                list.innerHTML = data.map(t => `<div class="card" style="margin-bottom:12px;">
+                    <div style="font-weight:600;">${t.title || '无标题'}</div>
+                    <div style="font-size:13px;color:var(--text-secondary);margin-top:4px;">
+                        状态:${t.status||''} | 优先级:${t.priority||''}
+                    </div>
+                </div>`).join('');
+            } catch (e) {
+                list.innerHTML = '<div class="empty-state">加载失败</div>';
+            }
+        }
+
+        async function loadExcelFiles() {
+            const list = document.getElementById('excelFilesList');
+            if (list) list.innerHTML = '<div class="empty-state">暂无Excel文件</div>';
+        }
+
+        async function loadGitProjectsInView() {
+            const tbody = document.getElementById('gitProjectsListView');
+            if (!tbody) return;
+            try {
+                const data = await api('/api/git-projects');
+                if (!data || data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text-secondary);">暂无项目</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = data.map(p => `<tr>
+                    <td style="padding:10px;border-bottom:1px solid var(--border);">${p.name}</td>
+                    <td style="padding:10px;border-bottom:1px solid var(--border);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${p.path||''}</td>
+                    <td style="padding:10px;border-bottom:1px solid var(--border);text-align:center;">
+                        <button class="btn btn-secondary" style="padding:4px 8px;font-size:12px;" onclick="viewGitProjectMembers('${p.name}')">查看成员</button>
+                    </td>
+                </tr>`).join('');
+            } catch (e) {
+                tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text-secondary);">暂无项目</td></tr>';
+            }
+        }
+
+        // ========== Event Handlers ==========
+        document.getElementById('projectSelect')?.addEventListener('change', function() {
+            state.projectId = this.value;
+        });
+
+        // ========== Git Import ==========
+        async function importGitProject() {
+            const path = document.getElementById('gitProjectPath')?.value;
+            if (!path) {
+                alert('请输入Git仓库路径');
+                return;
+            }
+            const name = path.split(/[/\\]/).pop() || 'Git项目';
+            try {
+                const res = await fetch('/api/git-projects', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, path })
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    alert('导入失败: ' + (data.error || '未知错误'));
+                    return;
+                }
+                alert('导入成功！');
+            } catch (e) {
+                alert('导入失败: ' + e.message);
+            }
+        }
+
+        async function importGitProjectFromView() {
+            const path = document.getElementById('gitProjectPathInput')?.value;
+            if (!path) {
+                alert('请输入或选择Git仓库路径');
+                return;
+            }
+            // 从路径提取项目名作为name
+            const name = path.split(/[/\\]/).pop() || 'Git项目';
+            try {
+                const res = await fetch('/api/git-projects', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, path })
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    alert('导入失败: ' + (data.error || '未知错误'));
+                    return;
+                }
+                alert('导入成功！');
+                loadGitProjectsInView();
+            } catch (e) {
+                alert('导入失败: ' + e.message);
+            }
+        }
+
+        // ========== Init ==========
+        document.addEventListener('DOMContentLoaded', function() {
+            loadProjects();
+            // File picker setup
+            document.getElementById('browseGitPathBtn')?.addEventListener('click', () => {
+                document.getElementById('gitDirPicker')?.click();
+            });
+            document.getElementById('gitDirPicker')?.addEventListener('change', function() {
+                if (this.files && this.files[0]) {
+                    const path = this.files[0].path || this.value;
+                    document.getElementById('gitProjectPathInput').value = path;
+                }
+            });
+            document.getElementById('browseGitPathBtnDash')?.addEventListener('click', () => {
+                document.getElementById('gitDirPickerDash')?.click();
+            });
+            document.getElementById('gitDirPickerDash')?.addEventListener('change', function() {
+                if (this.files && this.files[0]) {
+                    const path = this.files[0].path || this.value;
+                    document.getElementById('gitProjectPath').value = path;
+                }
+            });
+            // 仪表盘需要有效的developer_id，暂时跳过
+        });
+
+        // ========== Chat Functions ==========
+        function newChatSession() {
+            const id = 'session_' + Date.now();
+            state.chatSessions[id] = [];
+            state.currentSession = id;
+            updateChatSessionSelect();
+            clearChatMessages();
+            addSystemMessage('已开启新会话');
+        }
+
+        function switchChatSession(sessionId) {
+            if (state.chatSessions[sessionId]) {
+                state.currentSession = sessionId;
+                renderChatMessages();
+            }
+        }
+
+        function updateChatSessionSelect() {
+            const select = document.getElementById('chatSessionSelect');
+            if (!select) return;
+            const current = select.value;
+            select.innerHTML = Object.keys(state.chatSessions).map(id => {
+                const name = id === 'default' ? '默认会话' : '会话 ' + id.slice(-6);
+                return `<option value="${id}">${name}</option>`;
+            }).join('');
+            select.value = state.currentSession;
+        }
+
+        function addSystemMessage(text) {
+            const messages = state.chatSessions[state.currentSession];
+            messages.push({ role: 'system', content: text, time: new Date().toLocaleTimeString() });
+            renderChatMessages();
+        }
+
+        function clearChatMessages() {
+            const container = document.getElementById('chatMessages');
+            if (container) container.innerHTML = '';
+        }
+
+        function renderChatMessages() {
+            const container = document.getElementById('chatMessages');
+            if (!container) return;
+            const messages = state.chatSessions[state.currentSession] || [];
+            container.innerHTML = messages.map(m => {
+                if (m.role === 'system') {
+                    return `<div class="message system" style="background:#FFF7E6;text-align:center;font-size:12px;color:#999;">${m.content}</div>`;
+                }
+                const bgClass = m.role === 'user' ? 'user' : 'assistant';
+                return `<div class="message ${bgClass}">
+                    <div class="message-content">${m.content}</div>
+                    ${m.time ? `<div class="message-time">${m.time}</div>` : ''}
+                </div>`;
+            }).join('');
+            container.scrollTop = container.scrollHeight;
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('chatInput');
+            if (!input) return;
+            const content = input.value.trim();
+            if (!content) return;
+            input.value = '';
+            const messages = state.chatSessions[state.currentSession];
+            messages.push({ role: 'user', content: content, time: new Date().toLocaleTimeString() });
+            renderChatMessages();
+
+            // 调用AI API
+            try {
+                const model = document.getElementById('chatModelSelect')?.value || 'MiniMax-M2.7';
+                const res = await fetch('/api/ai/chat/stream', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: content, model: model })
+                });
+                if (!res.ok) throw new Error('请求失败');
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let aiResponse = '';
+                const assistantMsg = { role: 'assistant', content: '', time: '' };
+                messages.push(assistantMsg);
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    aiResponse += decoder.decode(value);
+                    assistantMsg.content = aiResponse;
+                    renderChatMessages();
+                }
+            } catch (e) {
+                messages.push({ role: 'assistant', content: '抱歉，发生了错误: ' + e.message, time: new Date().toLocaleTimeString() });
+                renderChatMessages();
+            }
+        }
+
+        // ========== Placeholder Functions ==========
+        function toggleMessages() {
+            console.log('toggleMessages called');
+        }
+
+        // ========== File Drag/Drop & Paste for Chat ==========
+        const chatInputArea = document.getElementById('chatInputArea');
+        const chatInput = document.getElementById('chatInput');
+
+        if (chatInputArea && chatInput) {
+            // Prevent default drag behaviors on the chat area
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                chatInputArea.addEventListener(eventName, (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                });
+            });
+
+            // Highlight drop area when dragging over
+            ['dragenter', 'dragover'].forEach(eventName => {
+                chatInputArea.addEventListener(eventName, () => {
+                    chatInputArea.style.background = 'var(--primary-light)';
+                });
+            });
+
+            ['dragleave', 'drop'].forEach(eventName => {
+                chatInputArea.addEventListener(eventName, () => {
+                    chatInputArea.style.background = '';
+                });
+            });
+
+            // Handle dropped files
+            chatInputArea.addEventListener('drop', (e) => {
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    handleChatFiles(files);
+                }
+            });
+
+            // Handle pasted files
+            chatInput.addEventListener('paste', (e) => {
+                const items = e.clipboardData.items;
+                for (let i = 0; i < items.length; i++) {
+                    if (items[i].kind === 'file') {
+                        const file = items[i].getAsFile();
+                        if (file) {
+                            handleChatFiles([file]);
+                        }
+                    }
+                }
+            });
+        }
+
+        function handleChatFiles(files) {
+            const fileNames = [];
+            for (let i = 0; i < files.length; i++) {
+                fileNames.push(files[i].name);
+            }
+            const current = chatInput.value;
+            chatInput.value = current + (current ? '\n' : '') + '[已上传文件: ' + fileNames.join(', ') + ']';
+            chatInput.focus();
+        }
+    </script>
+</body>
+</html>

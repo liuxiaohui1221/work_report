@@ -1,0 +1,2092 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>工作汇报系统 - Work Report</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #4A90E2;
+            --primary-dark: #357ABD;
+            --primary-light: #E8F0FB;
+            --success: #52C41A;
+            --warning: #FAAD14;
+            --error: #F5222D;
+            --text-primary: #262626;
+            --text-secondary: #8C8C8C;
+            --bg-light: #F5F5F5;
+            --bg-white: #FFFFFF;
+            --border: #E8E8E8;
+            --shadow: 0 2px 8px rgba(0,0,0,0.08);
+            --radius: 8px;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--bg-light);
+            color: var(--text-primary);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        /* 顶部导航 */
+        .header {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+            padding: 24px 40px;
+            box-shadow: var(--shadow);
+        }
+
+        .header h1 {
+            font-size: 26px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header p {
+            font-size: 14px;
+            opacity: 0.9;
+            margin-top: 6px;
+        }
+
+        /* 主容器 */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px 40px;
+        }
+
+        /* 标签页 */
+        .tabs {
+            display: flex;
+            gap: 4px;
+            background: var(--bg-white);
+            padding: 6px;
+            border-radius: var(--radius);
+            margin-bottom: 24px;
+            box-shadow: var(--shadow);
+        }
+
+        .tab {
+            flex: 1;
+            padding: 12px 16px;
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .tab:hover {
+            background: var(--bg-light);
+            color: var(--text-primary);
+        }
+
+        .tab.active {
+            background: var(--primary);
+            color: white;
+        }
+
+        /* 卡片 */
+        .card {
+            background: var(--bg-white);
+            border-radius: var(--radius);
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: var(--shadow);
+        }
+
+        .card-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .card-title::before {
+            content: '';
+            width: 4px;
+            height: 20px;
+            background: var(--primary);
+            border-radius: 2px;
+        }
+
+        /* 统计卡片 */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: var(--bg-white);
+            border-radius: var(--radius);
+            padding: 20px;
+            text-align: center;
+            box-shadow: var(--shadow);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+        .stat-value {
+            font-size: 36px;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .stat-label {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        /* 表格样式 */
+        .table-container {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        th {
+            background: var(--bg-light);
+            font-weight: 600;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        tr:hover {
+            background: var(--bg-light);
+        }
+
+        /* 按钮样式 */
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn:active {
+            transform: scale(0.97);
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-dark);
+        }
+
+        .btn-success {
+            background: var(--success);
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #3BA70D;
+        }
+
+        .btn-danger {
+            background: var(--error);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #D91D1D;
+        }
+
+        .btn-secondary {
+            background: var(--bg-light);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            background: #E8E8E8;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* 小按钮 */
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+
+        /* 表单样式 */
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            font-weight: 500;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 12px 14px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px var(--primary-light);
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+        }
+
+        /* 文件上传区域 */
+        .upload-zone {
+            border: 2px dashed var(--border);
+            border-radius: var(--radius);
+            padding: 48px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            background: var(--bg-light);
+        }
+
+        .upload-zone:hover {
+            border-color: var(--primary);
+            background: var(--primary-light);
+        }
+
+        .upload-zone.dragover {
+            border-color: var(--primary);
+            background: var(--primary-light);
+        }
+
+        .upload-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+
+        .upload-text {
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        /* 项目卡片网格 */
+        .project-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 16px;
+        }
+
+        .project-card {
+            border: 2px solid var(--border);
+            border-radius: var(--radius);
+            padding: 16px;
+            background: var(--bg-white);
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .project-card:hover {
+            border-color: var(--primary);
+            box-shadow: 0 2px 8px rgba(74, 144, 226, 0.2);
+        }
+
+        .project-card.selected {
+            border-color: var(--primary);
+            background: var(--primary-light);
+        }
+
+        .project-name {
+            font-weight: 600;
+            font-size: 16px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .project-path {
+            font-size: 12px;
+            color: var(--text-secondary);
+            word-break: break-all;
+            background: var(--bg-light);
+            padding: 8px;
+            border-radius: 4px;
+        }
+
+        .project-actions {
+            margin-top: 12px;
+            display: flex;
+            gap: 8px;
+        }
+
+        /* 复选框 */
+        .checkbox-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            padding: 8px 12px;
+            border-radius: 6px;
+            transition: background 0.2s ease;
+        }
+
+        .checkbox-wrapper:hover {
+            background: var(--bg-light);
+        }
+
+        .checkbox {
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--border);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            flex-shrink: 0;
+        }
+
+        .checkbox.checked {
+            background: var(--primary);
+            border-color: var(--primary);
+        }
+
+        .checkbox.checked::after {
+            content: '✓';
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        /* 人员标签 */
+        .member-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .member-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 16px;
+            background: var(--bg-light);
+            border-radius: 20px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: 2px solid transparent;
+        }
+
+        .member-tag:hover {
+            background: var(--primary-light);
+            border-color: var(--primary);
+        }
+
+        .member-tag.selected {
+            background: var(--primary);
+            color: white;
+        }
+
+        .member-tag .email {
+            font-size: 12px;
+            opacity: 0.8;
+        }
+
+        .member-tag.selected .email {
+            opacity: 0.9;
+        }
+
+        /* 步骤指示器 */
+        .steps {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 32px;
+            padding: 0 20px;
+        }
+
+        .step {
+            flex: 1;
+            text-align: center;
+            position: relative;
+        }
+
+        .step::before {
+            content: '';
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 10px;
+            font-weight: 600;
+            color: white;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .step:nth-child(1)::before { content: '1'; }
+        .step:nth-child(2)::before { content: '2'; }
+        .step:nth-child(3)::before { content: '3'; }
+        .step:nth-child(4)::before { content: '4'; }
+
+        .step.active::before {
+            background: var(--primary);
+            box-shadow: 0 0 0 4px var(--primary-light);
+        }
+
+        .step.completed::before {
+            background: var(--success);
+        }
+
+        .step-label {
+            font-size: 13px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .step.active .step-label {
+            color: var(--primary);
+            font-weight: 600;
+        }
+
+        .step.completed .step-label {
+            color: var(--success);
+        }
+
+        /* 连接线 */
+        .steps::after {
+            content: '';
+            position: absolute;
+            top: 18px;
+            left: 60px;
+            right: 60px;
+            height: 2px;
+            background: var(--border);
+            z-index: 0;
+        }
+
+        .step.completed::after {
+            background: var(--success);
+        }
+
+        /* 时间范围选择 */
+        .time-range-options {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+        }
+
+        .time-option {
+            padding: 16px 32px;
+            border: 2px solid var(--border);
+            border-radius: var(--radius);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: center;
+            min-width: 120px;
+        }
+
+        .time-option:hover {
+            border-color: var(--primary);
+            background: var(--primary-light);
+        }
+
+        .time-option.selected {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+
+        .time-option .label {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .time-option .desc {
+            font-size: 12px;
+            opacity: 0.8;
+        }
+
+        .time-option.selected .desc {
+            opacity: 1;
+        }
+
+        /* 报告预览 */
+        .report-preview {
+            background: var(--bg-light);
+            border-radius: var(--radius);
+            padding: 24px;
+            max-height: 350px;
+            overflow-y: auto;
+            font-size: 14px;
+            line-height: 1.8;
+        }
+
+        .report-preview pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        /* 加载状态 */
+        .loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 60px;
+            gap: 16px;
+        }
+
+        .spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid var(--border);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        .loading-text {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* 空状态 */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-secondary);
+        }
+
+        .empty-state-icon {
+            font-size: 64px;
+            margin-bottom: 16px;
+        }
+
+        /* 模态框 */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .modal {
+            background: var(--bg-white);
+            border-radius: var(--radius);
+            padding: 32px;
+            max-width: 480px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+            transform: scale(0.9);
+            transition: transform 0.3s ease;
+        }
+
+        .modal-overlay.active .modal {
+            transform: scale(1);
+        }
+
+        .modal-header {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .modal-footer {
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+            margin-top: 24px;
+            padding-top: 16px;
+            border-top: 1px solid var(--border);
+        }
+
+        /* 消息提示 */
+        .toast {
+            position: fixed;
+            top: 24px;
+            right: 24px;
+            padding: 16px 24px;
+            background: var(--bg-white);
+            border-radius: var(--radius);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            z-index: 2000;
+            transform: translateX(120%);
+            transition: transform 0.3s ease;
+            font-size: 14px;
+            max-width: 400px;
+        }
+
+        .toast.show {
+            transform: translateX(0);
+        }
+
+        .toast.success {
+            border-left: 4px solid var(--success);
+        }
+
+        .toast.error {
+            border-left: 4px solid var(--error);
+        }
+
+        .toast.warning {
+            border-left: 4px solid var(--warning);
+        }
+
+        /* 警告/提示框 */
+        .alert {
+            padding: 16px 20px;
+            border-radius: var(--radius);
+            margin-top: 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 14px;
+        }
+
+        .alert.loading {
+            background: var(--bg-light);
+            color: var(--text-secondary);
+        }
+
+        .alert.success {
+            background: #F6FFED;
+            border: 1px solid #B7EB8F;
+            color: #52C41A;
+        }
+
+        .alert.error {
+            background: #FFF2F0;
+            border: 1px solid #FFA39E;
+            color: var(--error);
+        }
+
+        /* 步骤内容区域 */
+        .step-content {
+            padding: 20px 0;
+        }
+
+        /* 箭头按钮容器 */
+        .btn-row {
+            margin-top: 32px;
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+        }
+
+        /* 选中计数提示 */
+        .selection-hint {
+            background: var(--primary-light);
+            padding: 12px 16px;
+            border-radius: 6px;
+            margin-top: 16px;
+            font-size: 14px;
+            color: var(--primary-dark);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* 响应式 */
+        @media (max-width: 768px) {
+            .container {
+                padding: 16px;
+            }
+
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .tabs {
+                flex-wrap: wrap;
+            }
+
+            .tab {
+                flex: none;
+                width: calc(50% - 4px);
+            }
+
+            .steps {
+                padding: 0;
+            }
+
+            .step::before {
+                width: 28px;
+                height: 28px;
+                font-size: 12px;
+            }
+
+            .time-range-options {
+                flex-direction: column;
+            }
+
+            .time-option {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📊 工作汇报系统</h1>
+        <p>自动化生成团队进度报告，支持定时任务和邮件发送</p>
+    </div>
+
+    <div class="container">
+        <!-- 统计卡片 -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value" id="projectCount">0</div>
+                <div class="stat-label">Git项目</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="memberCount">0</div>
+                <div class="stat-label">团队成员</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="reportCount">0</div>
+                <div class="stat-label">已生成报告</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="taskCount">0</div>
+                <div class="stat-label">定时任务</div>
+            </div>
+        </div>
+
+        <!-- 标签页 -->
+        <div class="tabs">
+            <button class="tab active" data-tab="projects">📁 项目配置</button>
+            <button class="tab" data-tab="tasks">📋 任务导入</button>
+            <button class="tab" data-tab="team">👥 团队成员</button>
+            <button class="tab" data-tab="reports">📈 报告生成</button>
+            <button class="tab" data-tab="schedule">⏰ 定时任务</button>
+            <button class="tab" data-tab="settings">⚙️ 设置</button>
+        </div>
+
+        <!-- 项目配置 -->
+        <div id="projectsTab" class="tab-content">
+            <div class="card">
+                <div class="card-title">Git项目配置</div>
+                <div class="project-grid" id="gitProjectList">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📂</div>
+                        <p>暂无Git项目，请添加</p>
+                    </div>
+                </div>
+                <button class="btn btn-primary" style="margin-top: 20px;" id="addProjectBtn">
+                    ➕ 添加Git项目
+                </button>
+            </div>
+        </div>
+
+        <!-- 任务导入 -->
+        <div id="tasksTab" class="tab-content" style="display: none;">
+            <div class="card">
+                <div class="card-title">导入项目任务进度Excel</div>
+                <div class="upload-zone" id="uploadZone">
+                    <div class="upload-icon">📤</div>
+                    <div class="upload-text">
+                        <strong>点击或拖拽文件到此处上传</strong><br>
+                        支持 .xlsx 格式的Excel文件
+                    </div>
+                </div>
+                <input type="file" id="fileInput" accept=".xlsx" style="display: none;">
+
+                <div id="uploadedFiles" style="margin-top: 20px;">
+                    <h4 style="margin-bottom: 12px; font-size: 14px; color: var(--text-secondary);">已上传文件</h4>
+                    <div class="table-container">
+                        <table id="fileTable">
+                            <thead>
+                                <tr>
+                                    <th>文件名</th>
+                                    <th>路径</th>
+                                    <th>大小</th>
+                                    <th>上传时间</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 团队成员 -->
+        <div id="teamTab" class="tab-content" style="display: none;">
+            <div class="card">
+                <div class="card-title">团队成员管理</div>
+                <div id="teamMemberList" class="member-list">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">👥</div>
+                        <p>暂无团队成员</p>
+                    </div>
+                </div>
+                <div style="margin-top: 20px; display: flex; gap: 12px;">
+                    <button class="btn btn-primary" id="addMemberBtn">➕ 手动添加</button>
+                    <button class="btn btn-secondary" id="importMembersBtn">🔄 从Git导入</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 报告生成 -->
+        <div id="reportsTab" class="tab-content" style="display: none;">
+            <div class="card">
+                <div class="card-title">生成进度报告</div>
+
+                <!-- 步骤指示器 -->
+                <div class="steps">
+                    <div class="step active" data-step="1">
+                        <div class="step-label">选择项目</div>
+                    </div>
+                    <div class="step" data-step="2">
+                        <div class="step-label">时间范围</div>
+                    </div>
+                    <div class="step" data-step="3">
+                        <div class="step-label">选择人员</div>
+                    </div>
+                    <div class="step" data-step="4">
+                        <div class="step-label">生成报告</div>
+                    </div>
+                </div>
+
+                <!-- 步骤1：选择项目 -->
+                <div id="step1Content" class="step-content">
+                    <h4 style="margin-bottom: 16px; color: var(--text-secondary);">请选择要生成报告的项目（可多选）</h4>
+                    <div class="project-grid" id="reportProjectList"></div>
+                    <div class="selection-hint" id="projectHint" style="display: none;">
+                        已选择 <strong id="selectedProjectCount">0</strong> 个项目
+                    </div>
+                    <div class="btn-row">
+                        <div></div>
+                        <button class="btn btn-primary" id="step1NextBtn">
+                            下一步 ➡
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 步骤2：选择时间范围 -->
+                <div id="step2Content" class="step-content" style="display: none;">
+                    <h4 style="margin-bottom: 16px; color: var(--text-secondary);">请选择报告时间范围</h4>
+                    <div class="time-range-options">
+                        <div class="time-option" data-value="1day" onclick="selectTimeRange(this)">
+                            <div class="label">最近1天</div>
+                            <div class="desc">昨日/当天数据</div>
+                        </div>
+                        <div class="time-option selected" data-value="2days" onclick="selectTimeRange(this)">
+                            <div class="label">最近2天</div>
+                            <div class="desc">默认选项</div>
+                        </div>
+                        <div class="time-option" data-value="1week" onclick="selectTimeRange(this)">
+                            <div class="label">最近1周</div>
+                            <div class="desc">周报数据</div>
+                        </div>
+                    </div>
+                    <div class="btn-row">
+                        <button class="btn btn-secondary" id="step2PrevBtn">⬅ 上一步</button>
+                        <button class="btn btn-primary" id="step2NextBtn">下一步 ➡</button>
+                    </div>
+                </div>
+
+                <!-- 步骤3：确认参与人员 -->
+                <div id="step3Content" class="step-content" style="display: none;">
+                    <h4 style="margin-bottom: 16px; color: var(--text-secondary);">参与报告的开发人员（根据Git提交记录自动发现）</h4>
+                    <div id="reportAuthors" class="member-list"></div>
+                    <div class="selection-hint" id="memberHint" style="display: none;">
+                        已选择 <strong id="selectedMemberCount">0</strong> 人
+                    </div>
+                    <div style="margin-top: 16px;">
+                        <div class="checkbox-wrapper" onclick="toggleSelectAllMembers()">
+                            <div class="checkbox" id="selectAllCheckbox"></div>
+                            <span>全选 / 取消全选</span>
+                        </div>
+                    </div>
+                    <div class="btn-row">
+                        <button class="btn btn-secondary" id="step3PrevBtn">⬅ 上一步</button>
+                        <button class="btn btn-primary" id="step3NextBtn">下一步 ➡</button>
+                    </div>
+                </div>
+
+                <!-- 步骤4：生成报告 -->
+                <div id="step4Content" class="step-content" style="display: none;">
+                    <div class="form-group">
+                        <label class="form-label">报告模式</label>
+                        <select class="form-input" id="reportMode" style="width: 200px;">
+                            <option value="manual">手动生成</option>
+                            <option value="scheduled">定时发送</option>
+                        </select>
+                    </div>
+
+                    <div id="scheduledOptions" style="display: none; margin-top: 16px;">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">定时发送时间</label>
+                                <input type="time" class="form-input" id="scheduleTime" value="09:00">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">重复周期</label>
+                                <select class="form-input" id="scheduleCycle">
+                                    <option value="daily">每天</option>
+                                    <option value="weekly">每周</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card" style="background: var(--bg-light); margin-top: 20px;">
+                        <h4 style="margin-bottom: 12px;">📋 报告预览</h4>
+                        <div class="report-preview" id="reportPreview">
+                            <p style="color: var(--text-secondary);">请完成上述步骤查看预览</p>
+                        </div>
+                    </div>
+
+                    <div class="btn-row">
+                        <button class="btn btn-secondary" id="step4PrevBtn">⬅ 上一步</button>
+                        <button class="btn btn-success" id="generateReportBtn">🚀 生成报告</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 定时任务 -->
+        <div id="scheduleTab" class="tab-content" style="display: none;">
+            <div class="card">
+                <div class="card-title">定时任务配置</div>
+                <div id="scheduledTaskList"></div>
+            </div>
+        </div>
+
+        <!-- 设置 -->
+        <div id="settingsTab" class="tab-content" style="display: none;">
+            <div class="card">
+                <div class="card-title">🤖 大模型配置</div>
+                <p style="color: var(--text-secondary); margin-bottom: 20px;">
+                    配置用于生成报告的大语言模型（LLM）API
+                </p>
+
+                <div class="form-group">
+                    <label class="form-label">模型提供商</label>
+                    <select class="form-input" id="llmProvider" style="width: 250px;">
+                        <option value="minimax">MiniMax</option>
+                        <option value="openai">OpenAI</option>
+                        <option value="anthropic">Anthropic</option>
+                        <option value="azure">Azure OpenAI</option>
+                        <option value="custom">自定义</option>
+                    </select>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">API Key</label>
+                        <input type="password" class="form-input" id="llmApiKey" placeholder="输入API密钥">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Base URL</label>
+                        <input type="text" class="form-input" id="llmBaseUrl" placeholder="https://api.minimaxi.com/anthropic">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">模型名称</label>
+                        <input type="text" class="form-input" id="llmModelName" placeholder="MiniMax-M2.7">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">最大Token数</label>
+                        <input type="number" class="form-input" id="llmMaxTokens" value="10000" min="1000" max="200000">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Temperature (创造性) <span id="tempValue">0.5</span></label>
+                    <input type="range" id="llmTemperature" min="0" max="1" step="0.1" value="0.5"
+                           style="width: 100%;" oninput="document.getElementById('tempValue').textContent = this.value">
+                    <div style="display: flex; justify-content: space-between; font-size: 12px; color: var(--text-secondary);">
+                        <span>精确</span>
+                        <span>创造</span>
+                    </div>
+                </div>
+
+                <div style="margin-top: 24px;">
+                    <button class="btn btn-primary" id="saveLlmConfigBtn">💾 保存配置</button>
+                    <button class="btn btn-secondary" id="testLlmBtn" style="margin-left: 12px;">🧪 测试连接</button>
+                </div>
+
+                <div id="llmStatus" style="margin-top: 16px; display: none;" class="alert"></div>
+            </div>
+
+            <div class="card" style="margin-top: 20px;">
+                <div class="card-title">📋 配置说明</div>
+                <div style="font-size: 14px; color: var(--text-secondary); line-height: 1.8;">
+                    <p><strong>MiniMax:</strong> 使用 https://api.minimaxi.com/anthropic，模型推荐 MiniMax-M2.7</p>
+                    <p><strong>OpenAI:</strong> 使用 https://api.openai.com/v1，模型如 gpt-4、gpt-3.5-turbo</p>
+                    <p><strong>Anthropic:</strong> 使用 https://api.anthropic.com，模型如 claude-3-opus</p>
+                    <p><strong>Azure:</strong> 需要提供Azure订阅的资源端点和API版本</p>
+                    <p style="margin-top: 12px; color: var(--warning);">⚠️ API Key将安全存储，仅用于调用大模型</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加项目模态框 -->
+    <div class="modal-overlay" id="addProjectModal">
+        <div class="modal">
+            <div class="modal-header">添加Git项目</div>
+            <div class="form-group">
+                <label class="form-label">项目名称</label>
+                <input type="text" class="form-input" id="projectName" placeholder="例如：数据平台后端">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Git仓库路径</label>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <input type="text" class="form-input" id="projectPath" placeholder="例如：C:\workspace\project" style="flex: 1;">
+                    <button class="btn btn-secondary" id="browsePathBtn" title="选择文件夹">📁 浏览</button>
+                    <input type="file" id="dirPicker" webkitdirectory style="display: none;">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="cancelProjectBtn">取消</button>
+                <button class="btn btn-primary" id="confirmAddProjectBtn">添加</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加成员模态框 -->
+    <div class="modal-overlay" id="addMemberModal">
+        <div class="modal">
+            <div class="modal-header">添加团队成员</div>
+            <div class="form-group">
+                <label class="form-label">姓名</label>
+                <input type="text" class="form-input" id="memberName" placeholder="例如：张三">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Git用户名</label>
+                <input type="text" class="form-input" id="memberGitName" placeholder="例如：zhangsan">
+            </div>
+            <div class="form-group">
+                <label class="form-label">邮箱</label>
+                <input type="email" class="form-input" id="memberEmail" placeholder="例如：zhangsan@example.com">
+            </div>
+            <div class="form-group">
+                <label class="form-label">角色</label>
+                <select class="form-input" id="memberRole">
+                    <option value="developer">开发人员</option>
+                    <option value="team_leader">团队负责人</option>
+                    <option value="architecture">架构师</option>
+                </select>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="cancelMemberBtn">取消</button>
+                <button class="btn btn-primary" id="confirmAddMemberBtn">添加</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast消息提示 -->
+    <div class="toast" id="toast">
+        <span id="toastMessage"></span>
+    </div>
+
+    <script>
+        // 全局状态
+        const state = {
+            gitProjects: [],
+            teamMembers: [],
+            excelFiles: [],
+            selectedProjects: [],
+            selectedTimeRange: '2days',
+            selectedAuthors: [],
+            currentStep: 1
+        };
+
+        // DOM 元素
+        const elements = {
+            projectCount: document.getElementById('projectCount'),
+            memberCount: document.getElementById('memberCount'),
+            reportCount: document.getElementById('reportCount'),
+            taskCount: document.getElementById('taskCount'),
+            gitProjectList: document.getElementById('gitProjectList'),
+            teamMemberList: document.getElementById('teamMemberList'),
+            reportProjectList: document.getElementById('reportProjectList'),
+            reportAuthors: document.getElementById('reportAuthors'),
+            reportPreview: document.getElementById('reportPreview'),
+            fileTableBody: document.querySelector('#fileTable tbody'),
+            scheduledTaskList: document.getElementById('scheduledTaskList'),
+            projectHint: document.getElementById('projectHint'),
+            memberHint: document.getElementById('memberHint'),
+            selectedProjectCount: document.getElementById('selectedProjectCount'),
+            selectedMemberCount: document.getElementById('selectedMemberCount'),
+            toast: document.getElementById('toast'),
+            toastMessage: document.getElementById('toastMessage')
+        };
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            initEventListeners();
+            loadGitProjects();
+            loadTeamMembers();
+            loadExcelFiles();
+            loadScheduledTasks();
+            updateStats();
+        });
+
+        // 初始化事件监听
+        function initEventListeners() {
+            // 标签页切换
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.addEventListener('click', function() {
+                    switchTab(this.dataset.tab);
+                });
+            });
+
+            // 添加项目按钮
+            document.getElementById('addProjectBtn').addEventListener('click', showAddProjectModal);
+            document.getElementById('cancelProjectBtn').addEventListener('click', () => closeModal('addProjectModal'));
+            document.getElementById('confirmAddProjectBtn').addEventListener('click', addGitProject);
+
+            // 浏览文件夹按钮
+            document.getElementById('browsePathBtn').addEventListener('click', async function() {
+                const pathInput = document.getElementById('projectPath');
+                const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+                const isWindows = navigator.platform.toUpperCase().indexOf('WIN') >= 0;
+
+                if ('showDirectoryPicker' in window) {
+                    // 现代浏览器 API (Chrome/Edge 86+, 需要 HTTPS 或 localhost)
+                    try {
+                        const dirHandle = await window.showDirectoryPicker();
+                        pathInput.value = dirHandle.name;
+                        showToast('已选择文件夹，请确认路径是否正确', 'warning');
+                    } catch (err) {
+                        if (err.name !== 'AbortError') {
+                            showToast('目录选择失败', 'error');
+                        }
+                    }
+                } else {
+                    // 回退：使用隐藏的 file input
+                    const dirPicker = document.getElementById('dirPicker');
+                    dirPicker.click();
+                }
+            });
+
+            // 目录选择回退 - 使用 webkitdirectory
+            document.getElementById('dirPicker').addEventListener('change', async function(e) {
+                if (this.files && this.files[0]) {
+                    const file = this.files[0];
+                    // 获取文件所在目录（因为 webkitdirectory 只能选文件）
+                    let dirPath = file.webkitRelativePath;
+
+                    // macOS: 从绝对路径获取目录
+                    if (file.webkitRelativePath === '' && file.mozFullPath) {
+                        // Firefox 或其他浏览器
+                        const fullPath = file.mozFullPath || file.webkitRelativePath;
+                        const lastSlash = fullPath.lastIndexOf('/');
+                        dirPath = lastSlash > 0 ? fullPath.substring(0, lastSlash) : fullPath;
+                    } else {
+                        // Chrome webkit 相对路径
+                        const parts = file.webkitRelativePath.split('/');
+                        if (parts.length > 1) {
+                            dirPath = parts.slice(0, -1).join('/');
+                        }
+                    }
+
+                    // 验证路径
+                    try {
+                        const response = await fetch('/api/git-projects/validate-path', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ path: dirPath || file.name })
+                        });
+                        const result = await response.json();
+
+                        if (result.valid) {
+                            document.getElementById('projectPath').value = dirPath || result.path;
+                            if (!document.getElementById('projectName').value.trim()) {
+                                document.getElementById('projectName').value = result.repo_name || '';
+                            }
+                            showToast('✅ ' + result.message, 'success');
+                        } else {
+                            showToast(result.error || '路径验证失败', 'error');
+                        }
+                    } catch (err) {
+                        // 降级处理：直接使用选中的路径
+                        const fallbackPath = dirPath || file.name;
+                        document.getElementById('projectPath').value = fallbackPath;
+                        showToast('已选择，请确认是有效的Git仓库路径', 'warning');
+                    }
+
+                    // 清空 input 以便再次选择
+                    this.value = '';
+                }
+            });
+
+            // 添加成员按钮
+            document.getElementById('addMemberBtn').addEventListener('click', showAddMemberModal);
+            document.getElementById('importMembersBtn').addEventListener('click', importMembersFromGit);
+            document.getElementById('cancelMemberBtn').addEventListener('click', () => closeModal('addMemberModal'));
+            document.getElementById('confirmAddMemberBtn').addEventListener('click', addTeamMember);
+
+            // 步骤导航按钮
+            document.getElementById('step1NextBtn').addEventListener('click', () => goToStep(2));
+            document.getElementById('step2PrevBtn').addEventListener('click', () => goToStep(1));
+            document.getElementById('step2NextBtn').addEventListener('click', () => goToStep(3));
+            document.getElementById('step3PrevBtn').addEventListener('click', () => goToStep(2));
+            document.getElementById('step3NextBtn').addEventListener('click', () => goToStep(4));
+            document.getElementById('step4PrevBtn').addEventListener('click', () => goToStep(3));
+            document.getElementById('generateReportBtn').addEventListener('click', generateReport);
+
+            // 报告模式切换
+            document.getElementById('reportMode').addEventListener('change', function() {
+                document.getElementById('scheduledOptions').style.display =
+                    this.value === 'scheduled' ? 'block' : 'none';
+            });
+
+            // LLM配置相关
+            document.getElementById('llmProvider').addEventListener('change', function() {
+                const urlInputs = {
+                    'minimax': 'https://api.minimaxi.com/anthropic',
+                    'openai': 'https://api.openai.com/v1',
+                    'anthropic': 'https://api.anthropic.com',
+                    'azure': 'https://YOUR_RESOURCE.openai.azure.com',
+                    'custom': ''
+                };
+                document.getElementById('llmBaseUrl').value = urlInputs[this.value] || '';
+            });
+
+            document.getElementById('saveLlmConfigBtn').addEventListener('click', saveLlmConfig);
+            document.getElementById('testLlmBtn').addEventListener('click', testLlmConnection);
+
+            // 加载LLM配置
+            loadLlmConfig();
+        });
+
+            uploadZone.addEventListener('click', () => fileInput.click());
+            uploadZone.addEventListener('dragover', e => {
+                e.preventDefault();
+                uploadZone.classList.add('dragover');
+            });
+            uploadZone.addEventListener('dragleave', () => {
+                uploadZone.classList.remove('dragover');
+            });
+            uploadZone.addEventListener('drop', e => {
+                e.preventDefault();
+                uploadZone.classList.remove('dragover');
+                if (e.dataTransfer.files[0]) {
+                    handleFileUpload({ files: [e.dataTransfer.files[0]] });
+                }
+            });
+            fileInput.addEventListener('change', function() {
+                handleFileUpload(this);
+            });
+        }
+
+        // 标签页切换
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
+
+            document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+            document.getElementById(tabName + 'Tab').style.display = 'block';
+
+            if (tabName === 'reports') {
+                loadReportProjects();
+            }
+        }
+
+        // Toast消息
+        function showToast(message, type = 'success') {
+            elements.toast.className = `toast ${type}`;
+            elements.toastMessage.textContent = message;
+            elements.toast.classList.add('show');
+            setTimeout(() => elements.toast.classList.remove('show'), 3000);
+        }
+
+        // 模态框控制
+        function showModal(modalId) {
+            document.getElementById(modalId).classList.add('active');
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.remove('active');
+        }
+
+        // ==================== Git项目管理 ====================
+
+        function loadGitProjects() {
+            fetch('/api/git-projects')
+                .then(res => res.json())
+                .then(data => {
+                    state.gitProjects = data;
+                    renderGitProjects();
+                    updateStats();
+                })
+                .catch(err => console.error('加载Git项目失败:', err));
+        }
+
+        function renderGitProjects() {
+            if (state.gitProjects.length === 0) {
+                elements.gitProjectList.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📂</div>
+                        <p>暂无Git项目，请添加</p>
+                    </div>
+                `;
+                return;
+            }
+
+            elements.gitProjectList.innerHTML = state.gitProjects.map(project => `
+                <div class="project-card" data-id="${project.id}">
+                    <div class="project-name">📁 ${project.name}</div>
+                    <div class="project-path">${project.path}</div>
+                    <div class="project-actions">
+                        <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); syncAuthors(${project.id})">🔄 同步</button>
+                        <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteGitProject(${project.id})">🗑</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function showAddProjectModal() {
+            document.getElementById('projectName').value = '';
+            document.getElementById('projectPath').value = '';
+            showModal('addProjectModal');
+        }
+
+        function addGitProject() {
+            const name = document.getElementById('projectName').value.trim();
+            const path = document.getElementById('projectPath').value.trim();
+
+            if (!name || !path) {
+                showToast('请填写项目名称和路径', 'error');
+                return;
+            }
+
+            // 先验证路径
+            fetch('/api/git-projects/validate-path', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path })
+            })
+            .then(res => res.json())
+            .then(result => {
+                if (!result.valid) {
+                    showToast(result.error || '路径无效', 'error');
+                    return;
+                }
+
+                // 路径有效，添加项目
+                return fetch('/api/git-projects', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, path })
+                });
+            })
+            .then(res => {
+                if (!res) return;
+                if (!res.ok) return res.json().then(e => Promise.reject(e));
+                return res.json();
+            })
+            .then(data => {
+                showToast('✅ 项目添加成功');
+                closeModal('addProjectModal');
+                loadGitProjects();
+            })
+            .catch(err => {
+                showToast(err.error || '添加失败', 'error');
+            });
+        }
+
+        function deleteGitProject(id) {
+            if (!confirm('确定要删除这个项目吗？')) return;
+
+            fetch(`/api/git-projects/${id}`, { method: 'DELETE' })
+                .then(() => {
+                    showToast('项目已删除');
+                    loadGitProjects();
+                })
+                .catch(err => showToast('删除失败', 'error'));
+        }
+
+        function syncAuthors(projectId) {
+            fetch(`/api/git-projects/${projectId}/authors`)
+                .then(res => res.json())
+                .then(data => {
+                    showToast(`已发现 ${data.authors_count} 位作者`);
+                    loadTeamMembers();
+                })
+                .catch(err => showToast('同步失败', 'error'));
+        }
+
+        // ==================== 团队成员管理 ====================
+
+        function loadTeamMembers() {
+            fetch('/api/team-members')
+                .then(res => res.json())
+                .then(data => {
+                    state.teamMembers = data;
+                    renderTeamMembers();
+                    updateStats();
+                })
+                .catch(err => console.error('加载成员失败:', err));
+        }
+
+        function renderTeamMembers() {
+            if (state.teamMembers.length === 0) {
+                elements.teamMemberList.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">👥</div>
+                        <p>暂无团队成员</p>
+                    </div>
+                `;
+                return;
+            }
+
+            elements.teamMemberList.innerHTML = state.teamMembers.map(member => `
+                <div class="member-tag" data-id="${member.id}">
+                    <span>${member.name}</span>
+                    <span class="email">${member.email}</span>
+                </div>
+            `).join('');
+        }
+
+        function showAddMemberModal() {
+            document.getElementById('memberName').value = '';
+            document.getElementById('memberGitName').value = '';
+            document.getElementById('memberEmail').value = '';
+            document.getElementById('memberRole').value = 'developer';
+            showModal('addMemberModal');
+        }
+
+        function addTeamMember() {
+            const name = document.getElementById('memberName').value.trim();
+            const git_name = document.getElementById('memberGitName').value.trim();
+            const email = document.getElementById('memberEmail').value.trim();
+            const role = document.getElementById('memberRole').value;
+
+            if (!name || !email) {
+                showToast('请填写姓名和邮箱', 'error');
+                return;
+            }
+
+            fetch('/api/team-members', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, git_name, email, role })
+            })
+            .then(res => res.json())
+            .then(data => {
+                showToast('成员添加成功');
+                closeModal('addMemberModal');
+                loadTeamMembers();
+            })
+            .catch(err => showToast('添加失败', 'error'));
+        }
+
+        function importMembersFromGit() {
+            if (state.gitProjects.length === 0) {
+                showToast('请先添加Git项目', 'error');
+                return;
+            }
+
+            const projectId = state.gitProjects[0].id;
+            fetch('/api/team-members/import', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    project_id: projectId,
+                    since: getDateRangeSince(),
+                    until: getDateRangeUntil()
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                showToast(`已导入 ${data.imported_count} 位成员（共 ${data.total_authors} 位）`);
+                loadTeamMembers();
+            })
+            .catch(err => showToast('导入失败', 'error'));
+        }
+
+        // ==================== Excel文件管理 ====================
+
+        function handleFileUpload(input) {
+            const file = input.files[0];
+            if (!file || !file.name.endsWith('.xlsx')) {
+                showToast('请上传 .xlsx 格式的Excel文件', 'error');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('project', 'default');
+
+            fetch('/api/excel/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(res => res.json())
+            .then(data => {
+                showToast(`上传成功，发现 ${data.tasks_count} 个任务`);
+                loadExcelFiles();
+            })
+            .catch(err => showToast('上传失败', 'error'));
+        }
+
+        function loadExcelFiles() {
+            fetch('/api/excel/files')
+                .then(res => res.json())
+                .then(data => {
+                    state.excelFiles = data;
+                    renderExcelFiles();
+                })
+                .catch(err => console.error('加载文件失败:', err));
+        }
+
+        function renderExcelFiles() {
+            if (state.excelFiles.length === 0) {
+                elements.fileTableBody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">暂无上传的文件</td></tr>';
+                return;
+            }
+
+            elements.fileTableBody.innerHTML = state.excelFiles.map(file => `
+                <tr>
+                    <td>${file.name}</td>
+                    <td>${file.relative_path}</td>
+                    <td>${(file.size / 1024).toFixed(1)} KB</td>
+                    <td>${file.modified}</td>
+                    <td>
+                        <button class="btn btn-secondary btn-sm" onclick="previewExcel('${file.relative_path.replace(/\\/g, '\\\\')}')">预览</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function previewExcel(filename) {
+            fetch(`/api/excel/parse/${encodeURIComponent(filename)}`)
+                .then(res => res.json())
+                .then(data => {
+                    showToast(`文件包含 ${data.total_tasks} 个任务`);
+                })
+                .catch(err => showToast('预览失败', 'error'));
+        }
+
+        // ==================== 报告生成向导 ====================
+
+        function loadReportProjects() {
+            if (state.gitProjects.length === 0) {
+                elements.reportProjectList.innerHTML = '<p style="color: var(--text-secondary);">请先添加Git项目</p>';
+                return;
+            }
+
+            elements.reportProjectList.innerHTML = state.gitProjects.map(project => `
+                <div class="project-card ${state.selectedProjects.includes(project.id) ? 'selected' : ''}"
+                     onclick="toggleReportProject(${project.id})" data-id="${project.id}">
+                    <div class="project-name">
+                        <div class="checkbox ${state.selectedProjects.includes(project.id) ? 'checked' : ''}"></div>
+                        <span style="margin-left: 8px;">📁 ${project.name}</span>
+                    </div>
+                    <div class="project-path">${project.path}</div>
+                </div>
+            `).join('');
+
+            updateProjectHint();
+        }
+
+        function toggleReportProject(id) {
+            const index = state.selectedProjects.indexOf(id);
+            if (index > -1) {
+                state.selectedProjects.splice(index, 1);
+            } else {
+                state.selectedProjects.push(id);
+            }
+            loadReportProjects();
+        }
+
+        function updateProjectHint() {
+            const count = state.selectedProjects.length;
+            elements.projectHint.style.display = count > 0 ? 'flex' : 'none';
+            elements.selectedProjectCount.textContent = count;
+        }
+
+        function selectTimeRange(el) {
+            document.querySelectorAll('.time-option').forEach(o => o.classList.remove('selected'));
+            el.classList.add('selected');
+            state.selectedTimeRange = el.dataset.value;
+        }
+
+        function getDateRangeSince() {
+            const now = new Date();
+            if (state.selectedTimeRange === '1day') {
+                return new Date(now - 86400000).toISOString().split('T')[0];
+            } else if (state.selectedTimeRange === '1week') {
+                return new Date(now - 604800000).toISOString().split('T')[0];
+            } else {
+                return new Date(now - 172800000).toISOString().split('T')[0];
+            }
+        }
+
+        function getDateRangeUntil() {
+            return new Date().toISOString().split('T')[0];
+        }
+
+        function goToStep(step) {
+            // 验证前置步骤（但允许到达步骤4）
+            if (step > 1 && state.selectedProjects.length === 0) {
+                showToast('请至少选择一个项目', 'warning');
+                return;
+            }
+
+            // 只有在从步骤3离开时才检查人员选择（不允许跳过步骤3）
+            if (step > 3 && state.currentStep === 3 && state.selectedAuthors.length === 0) {
+                // 检查是否真的没有选中任何人（通过DOM检查）
+                const selectedCount = document.querySelectorAll('.member-tag.selected').length;
+                if (selectedCount === 0) {
+                    showToast('请至少选择一位参与人员（或保持全选默认）', 'warning');
+                    // 不阻止，继续前进，让用户可以生成全部人员报告
+                }
+            }
+
+            state.currentStep = step;
+
+            // 更新步骤指示器
+            document.querySelectorAll('.step').forEach((s, i) => {
+                const stepNum = i + 1;
+                s.classList.remove('active', 'completed');
+                if (stepNum < step) s.classList.add('completed');
+                if (stepNum === step) s.classList.add('active');
+            });
+
+            // 显示对应步骤内容
+            document.querySelectorAll('.step-content').forEach(c => c.style.display = 'none');
+            document.getElementById(`step${step}Content`).style.display = 'block';
+
+            if (step === 3) {
+                loadReportAuthors();
+            } else if (step === 4) {
+                updateReportPreview();
+            }
+        }
+
+        function loadReportAuthors() {
+            const since = getDateRangeSince();
+            const until = getDateRangeUntil();
+
+            // 显示加载状态
+            elements.reportAuthors.innerHTML = `
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <div class="loading-text">正在从Git获取参与人员...</div>
+                </div>
+            `;
+
+            // 从选中的项目获取作者
+            Promise.all(state.selectedProjects.map(id => {
+                return fetch(`/api/git-projects/${id}/authors?since=${since}&until=${until}`)
+                    .then(res => res.json())
+                    .then(data => data.authors);
+            }))
+            .then(results => {
+                const allAuthors = {};
+                results.flat().forEach(author => {
+                    const key = `${author.name}|${author.email}`;
+                    allAuthors[key] = author;
+                });
+
+                state.selectedAuthors = Object.values(allAuthors);
+                renderReportAuthors();
+            })
+            .catch(err => {
+                showToast('加载作者失败', 'error');
+                elements.reportAuthors.innerHTML = '<p style="color: var(--error);">加载失败，请重试</p>';
+            });
+        }
+
+        function renderReportAuthors() {
+            if (state.selectedAuthors.length === 0) {
+                elements.reportAuthors.innerHTML = '<p style="color: var(--text-secondary);">在选定时间范围内没有发现提交记录</p>';
+                return;
+            }
+
+            elements.reportAuthors.innerHTML = state.selectedAuthors.map((author, idx) => `
+                <div class="member-tag selected" data-index="${idx}" onclick="toggleAuthor(${idx})">
+                    <span>${author.name}</span>
+                    <span class="email">${author.email}</span>
+                </div>
+            `).join('');
+
+            updateMemberHint();
+        }
+
+        function toggleAuthor(idx) {
+            const tag = document.querySelector(`.member-tag[data-index="${idx}"]`);
+            if (tag) {
+                tag.classList.toggle('selected');
+            }
+            updateMemberHint();
+        }
+
+        function updateMemberHint() {
+            const count = document.querySelectorAll('.member-tag.selected').length;
+            elements.memberHint.style.display = count > 0 ? 'flex' : 'none';
+            elements.selectedMemberCount.textContent = count;
+        }
+
+        function toggleSelectAllMembers() {
+            const allSelected = document.querySelectorAll('.member-tag.selected').length === state.selectedAuthors.length;
+            document.querySelectorAll('.member-tag').forEach(tag => {
+                if (allSelected) {
+                    tag.classList.remove('selected');
+                } else {
+                    tag.classList.add('selected');
+                }
+            });
+            updateMemberHint();
+
+            const checkbox = document.getElementById('selectAllCheckbox');
+            checkbox.classList.toggle('checked', !allSelected);
+        }
+
+        function updateReportPreview() {
+            const timeRangeText = state.selectedTimeRange === '1day' ? '最近1天' :
+                                  state.selectedTimeRange === '1week' ? '最近1周' : '最近2天';
+
+            const selectedCount = document.querySelectorAll('.member-tag.selected').length;
+
+            let html = `
+                <p><strong>📅 时间范围：</strong>${timeRangeText}</p>
+                <p><strong>📁 选中项目：</strong>${state.selectedProjects.length} 个</p>
+                <p><strong>👥 参与人员：</strong>${selectedCount} 人（已选择）</p>
+                <hr style="margin: 16px 0; border: none; border-top: 1px solid #eee;">
+                <p><strong>报告将包含：</strong></p>
+                <ul>
+                    <li>项目整体进度（基于Excel任务文件）</li>
+                    <li>个人开发进度（基于Git提交记录）</li>
+                    <li>潜在问题和改进点分析</li>
+                    <li>给开发人员的AI助手指令（可直接粘贴给大模型）</li>
+                </ul>
+            `;
+
+            elements.reportPreview.innerHTML = html;
+        }
+
+        function generateReport() {
+            const mode = document.getElementById('reportMode').value;
+            const scheduleTime = document.getElementById('scheduleTime').value;
+            const scheduleCycle = document.getElementById('scheduleCycle').value;
+
+            const selectedMemberEmails = Array.from(document.querySelectorAll('.member-tag.selected'))
+                .map(tag => state.selectedAuthors[parseInt(tag.dataset.index)]?.email)
+                .filter(Boolean);
+
+            if (selectedMemberEmails.length === 0) {
+                showToast('请至少选择一位参与人员', 'warning');
+                return;
+            }
+
+            // 显示加载状态
+            elements.reportPreview.innerHTML = `
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <div class="loading-text">正在生成报告，请稍候...</div>
+                </div>
+            `;
+
+            if (mode === 'scheduled') {
+                fetch('/api/scheduled-tasks', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: `定时报告_${new Date().toISOString().split('T')[0]}`,
+                        task_type: 'daily',
+                        schedule: `0 ${scheduleTime.split(':')[1]} ${scheduleTime.split(':')[0]} * *`,
+                        projects: state.selectedProjects,
+                        time_range: state.selectedTimeRange,
+                        recipients: selectedMemberEmails
+                    })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    showToast('定时任务创建成功');
+                    loadScheduledTasks();
+                })
+                .catch(err => showToast('创建失败', 'error'));
+            } else {
+                fetch('/api/reports/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        task_type: 'daily',
+                        time_range: state.selectedTimeRange,
+                        projects: state.selectedProjects,
+                        members: selectedMemberEmails,
+                        mode: 'manual'
+                    })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        elements.reportPreview.innerHTML = `
+                            <p style="color: var(--success); font-size: 16px;">✅ 报告生成成功！</p>
+                            <p style="margin-top: 16px;"><strong>📂 文件路径：</strong></p>
+                            <code style="display: block; padding: 12px; background: #f5f5f5; border-radius: 4px; word-break: break-all; margin-top: 8px;">
+                                ${data.report_path}
+                            </code>
+                            <p style="margin-top: 20px;"><strong>📊 统计信息：</strong></p>
+                            <ul style="margin-top: 8px;">
+                                <li>项目数：${data.projects_count}</li>
+                                <li>参与人员：${data.members_count}</li>
+                                <li>提交记录：${data.commits_count}</li>
+                            </ul>
+                        `;
+                        showToast('报告生成成功');
+                        updateStats();
+                    } else {
+                        showToast(data.error || '生成失败', 'error');
+                    }
+                })
+                .catch(err => {
+                    showToast('生成失败', 'error');
+                });
+            }
+        }
+
+        // ==================== 定时任务管理 ====================
+
+        function loadScheduledTasks() {
+            fetch('/api/scheduled-tasks')
+                .then(res => res.json())
+                .then(data => {
+                    renderScheduledTasks(data);
+                    updateStats();
+                })
+                .catch(err => console.error('加载定时任务失败:', err));
+        }
+
+        function renderScheduledTasks(tasks) {
+            if (tasks.length === 0) {
+                elements.scheduledTaskList.innerHTML = '<p style="color: var(--text-secondary);">暂无定时任务</p>';
+                return;
+            }
+
+            elements.scheduledTaskList.innerHTML = tasks.map(task => `
+                <div class="card" style="margin-bottom: 12px; padding: 16px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <h4 style="margin-bottom: 6px;">📅 ${task.name}</h4>
+                            <p style="font-size: 13px; color: var(--text-secondary);">
+                                周期：${task.schedule} | 时间范围：${task.time_range}
+                            </p>
+                        </div>
+                        <button class="btn btn-danger btn-sm" onclick="deleteScheduledTask(${task.id})">
+                            🗑 删除
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function deleteScheduledTask(id) {
+            if (!confirm('确定要删除这个定时任务吗？')) return;
+
+            fetch(`/api/scheduled-tasks/${id}`, { method: 'DELETE' })
+                .then(() => {
+                    showToast('定时任务已删除');
+                    loadScheduledTasks();
+                })
+                .catch(err => showToast('删除失败', 'error'));
+        }
+
+        // ==================== LLM配置管理 ====================
+
+        function loadLlmConfig() {
+            fetch('/api/llm/config')
+                .then(res => res.json())
+                .then(data => {
+                    document.getElementById('llmProvider').value = data.provider || 'minimax';
+                    document.getElementById('llmApiKey').value = data.api_key || '';
+                    document.getElementById('llmBaseUrl').value = data.base_url || '';
+                    document.getElementById('llmModelName').value = data.model_name || '';
+                    document.getElementById('llmMaxTokens').value = data.max_tokens || 10000;
+                    document.getElementById('llmTemperature').value = data.temperature || 0.5;
+                    document.getElementById('tempValue').textContent = data.temperature || 0.5;
+                })
+                .catch(err => console.error('加载LLM配置失败:', err));
+        }
+
+        function saveLlmConfig() {
+            const config = {
+                provider: document.getElementById('llmProvider').value,
+                api_key: document.getElementById('llmApiKey').value,
+                base_url: document.getElementById('llmBaseUrl').value,
+                model_name: document.getElementById('llmModelName').value,
+                max_tokens: parseInt(document.getElementById('llmMaxTokens').value) || 10000,
+                temperature: parseFloat(document.getElementById('llmTemperature').value) || 0.5
+            };
+
+            if (!config.api_key) {
+                showToast('请输入API Key', 'error');
+                return;
+            }
+
+            fetch('/api/llm/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(config)
+            })
+            .then(res => res.json())
+            .then(data => {
+                showToast('✅ LLM配置已保存', 'success');
+            })
+            .catch(err => {
+                showToast('保存失败', 'error');
+            });
+        }
+
+        function testLlmConnection() {
+            const statusEl = document.getElementById('llmStatus');
+            statusEl.style.display = 'block';
+            statusEl.className = 'alert loading';
+            statusEl.innerHTML = '<div class="spinner" style="width: 20px; height: 20px; border-width: 2px;"></div> 正在测试连接...';
+
+            const config = {
+                provider: document.getElementById('llmProvider').value,
+                api_key: document.getElementById('llmApiKey').value,
+                base_url: document.getElementById('llmBaseUrl').value,
+                model_name: document.getElementById('llmModelName').value
+            };
+
+            fetch('/api/llm/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(config)
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    statusEl.className = 'alert success';
+                    statusEl.innerHTML = '✅ 连接成功！模型响应正常';
+                    showToast('LLM连接测试成功', 'success');
+                } else {
+                    statusEl.className = 'alert error';
+                    statusEl.innerHTML = '❌ 连接失败：' + (data.error || '未知错误');
+                    showToast(data.error || '连接测试失败', 'error');
+                }
+            })
+            .catch(err => {
+                statusEl.className = 'alert error';
+                statusEl.innerHTML = '❌ 测试失败：' + err.message;
+                showToast('测试请求失败', 'error');
+            });
+
+            // 3秒后隐藏状态
+            setTimeout(() => {
+                statusEl.style.display = 'none';
+            }, 5000);
+        }
+
+        // ==================== 统计更新 ====================
+
+        function updateStats() {
+            elements.projectCount.textContent = state.gitProjects.length;
+            elements.memberCount.textContent = state.teamMembers.length;
+
+            fetch('/api/reports/logs')
+                .then(res => res.json())
+                .then(data => {
+                    elements.reportCount.textContent = data.length;
+                })
+                .catch(() => {});
+
+            fetch('/api/scheduled-tasks')
+                .then(res => res.json())
+                .then(data => {
+                    elements.taskCount.textContent = data.length;
+                })
+                .catch(() => {});
+        }
+    </script>
+</body>
+</html>
