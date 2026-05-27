@@ -27,7 +27,7 @@ from config import (
     PROJECT_REPORT_RECIPIENTS, DEFAULT_PROJECT_RECIPIENTS,
     PENDING_STATUSES, COMPLETED_STATUS, MAX_PENDING_TASKS
 )
-from email_sender import send_personal_report_email, send_project_report_email, confirm_email_sender_and_recipients, set_email_sender, select_recipients_from_git_authors, select_team_members_for_email, reset_email_rate_limit, select_project_report_recipients
+from email_sender import send_personal_report_email, send_project_report_email, confirm_email_sender_and_recipients, set_email_sender, select_recipients_from_git_authors, reset_email_rate_limit, select_project_report_recipients
 
 # Prompt 文件路径
 PROMPTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "prompts")
@@ -38,7 +38,7 @@ load_dotenv()
 
 MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY")
 MINIMAX_BASE_URL = os.getenv("MINIMAX_BASE_URL", "https://api.minimaxi.com/anthropic")
-
+print(MINIMAX_API_KEY)
 
 def load_prompt_file(filepath: str) -> str:
     """从md文件加载prompt内容"""

@@ -1,15 +1,22 @@
 # ===================== 配置文件 =====================
 # 此文件包含需要经常修改的变量信息
 
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# --- SMTP 密码从 .env 文件获取（不在此处硬编码） ---
+
 # --- 项目信息 ---
 PROJECT1_NAME = "数据平台后端（cyber-platform）"
 PROJECT1_REPO_PATH = r"C:\workspace\datacyber\cyber-platform"
 
 PROJECT2_NAME = "Agent项目（cyber-agent）"
-PROJECT2_REPO_PATH = r"C:\workspace2\cyber-agent"
+PROJECT2_REPO_PATH = r"C:\workspace\datacyber\cyber-agent"
 
 # --- 本地规划文件目录 ---
-PLAN_DATA_DIR = r"C:\workspace\pywork\work_report\input"
+PLAN_DATA_DIR = r"C:\workspace\pywork\work_report\input\plan"
 
 # --- 规划文件子目录名称（与input目录下的子目录名对应） ---
 PLATFORM_DIR = "platform"
@@ -36,8 +43,8 @@ COMPLETED_STATUS = "已完成"
 MAX_PENDING_TASKS = 10  # 每人最多显示待办任务数
 
 # --- 大模型参数 ---
-MAX_DIFF_LINES = 1000  # git diff 输出最大行数，避免超出模型上下文
-MODEL_NAME = "MiniMax-M2.7"
+MAX_DIFF_LINES = 5000  # git diff 输出最大行数，避免超出模型上下文
+MODEL_NAME = os.getenv("MODEL_NAME", "MiniMax-M2.7")
 MAX_TOKENS = 10000
 TEMPERATURE = 0.5
 
@@ -52,11 +59,10 @@ TEAM_MEMBER_SOURCE = "config"  # "config" 或 "git"
 TEAM_MEMBERS = [
       {
           "name": "刘小辉",
-          "git_name": "xiaohui",
           "email": "liuxiaohui@datacyber.com",  # 改这里
           "project_roles": {
               "platform": "developer",
-              "agent": "team_leader,architecture"
+              "agent": "architecture"
           }
       }
   ]
@@ -72,12 +78,7 @@ EMAIL_ENABLED = True
 EMAIL_SMTP_HOST = "smtp.qq.com"
 EMAIL_SMTP_PORT = 587
 EMAIL_SMTP_USER = "lxh1221@qq.com"
-EMAIL_SMTP_PASSWORD = "hpptebjghluzifej"
-#阿里邮箱
-# EMAIL_SMTP_HOST = "smtp.qiye.aliyun.com"
-# EMAIL_SMTP_PORT = 465
-# EMAIL_SMTP_USER = "liuxiaohui@datacyber.com"
-# EMAIL_SMTP_PASSWORD = "RkZT477qxo96r1EW"
+EMAIL_SMTP_PASSWORD = os.getenv("EMAIL_SMTP_PASSWORD", "")
 
 # 邮件发送频率限制
 EMAIL_RATE_LIMIT = 5  # 最多发送数量
@@ -89,6 +90,9 @@ EMAIL_FROM_NAME = "工作汇报"
 # 是否给团队成员发送个人报告（True=发送，False=不发送）
 TEAM_MEMBER_SEND_EMAIL = True
 
+# 个人周报收件人邮箱（上级/负责人邮箱），为空则只发送给成员自己
+PERSONAL_REPORT_RECIPIENT = "zl@datacyber.com"
+
 # 发送个人报告时的成员范围模式
 # "all" = 发送给所有团队成员
 # "select" = 让用户选择要发送给哪些成员
@@ -99,10 +103,10 @@ TEAM_MEMBER_EMAIL_MODE = "select"
 # 如果项目不在配置中，则不发送项目报告邮件
 # 阿里邮箱（工作邮箱）
 PROJECT_REPORT_RECIPIENTS = {
-    PLATFORM_DIR: ["liuxiaohui@datacyber.com"],
-    AGENT_DIR: ["liuxiaohui@datacyber.com"]
+    "platform": ["lyy@datacyber.com"],
+    "agent": ["lyy@datacyber.com"]
 }
 
 # 也可以设置一个全局默认收件人列表，用于所有项目
 # 如果项目不在 PROJECT_REPORT_RECIPIENTS 中，则使用此配置
-DEFAULT_PROJECT_RECIPIENTS = []
+DEFAULT_PROJECT_RECIPIENTS = ["zl@datacyber.com","liuxiaohui@datacyber.com"]

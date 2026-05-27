@@ -17,7 +17,7 @@ from config import (
     EMAIL_ENABLED, EMAIL_SMTP_HOST, EMAIL_SMTP_PORT,
     EMAIL_SMTP_USER, EMAIL_SMTP_PASSWORD, EMAIL_FROM_NAME,
     TEAM_MEMBER_SEND_EMAIL, TEAM_MEMBER_EMAIL_MODE,
-    EMAIL_RATE_LIMIT, EMAIL_RATE_PERIOD
+    EMAIL_RATE_LIMIT, EMAIL_RATE_PERIOD, PERSONAL_REPORT_RECIPIENT
 )
 
 # 全局发件人覆盖（用于交互式选择发件人后覆盖配置中的默认发件人）
@@ -124,7 +124,7 @@ def confirm_email_sender_and_recipients(git_authors: list, default_sender: str,
 
 
 def send_email(subject: str, body: str, to_emails: list, attachments: list = None,
-               from_email: str = None, from_name: str = None) -> bool:
+               from_email: str = None, from_name: str = None, cc_emails: list = None) -> bool:
     """发送邮件
 
     Args:
@@ -134,6 +134,7 @@ def send_email(subject: str, body: str, to_emails: list, attachments: list = Non
         attachments: 附件文件路径列表（可选）
         from_email: 发件人邮箱（可选，默认使用全局覆盖值或配置中的EMAIL_SMTP_USER）
         from_name: 发件人显示名称（可选，默认使用EMAIL_FROM_NAME）
+        cc_emails: 抄送收件人邮箱列表（可选）
 
     Returns:
         bool: 发送是否成功
@@ -177,6 +178,8 @@ def send_email(subject: str, body: str, to_emails: list, attachments: list = Non
 
         msg['From'] = encode_sender_name(actual_name, actual_sender)
         msg['To'] = ", ".join(to_emails)
+        if cc_emails:
+            msg['Cc'] = ", ".join(cc_emails)
         msg['Subject'] = subject
         msg['Date'] = datetime.now().strftime("%a, %d %b %Y %H:%M:%S +0800")
 
@@ -188,7 +191,7 @@ def send_email(subject: str, body: str, to_emails: list, attachments: list = Non
         msg.attach(MIMEText(body, 'html', 'utf-8'))
 
         # 发送邮件
-        print(f"[DEBUG] 开始发送邮件, SMTP_USER={EMAIL_SMTP_USER}, to_emails={to_emails}")
+        print(f"[DEBUG] 开始发送邮件, SMTP_USER={EMAIL_SMTP_USER}, to_emails={to_emails}, cc_emails={cc_emails}")
         if EMAIL_SMTP_PORT == 465:
             server = smtplib.SMTP_SSL(EMAIL_SMTP_HOST, EMAIL_SMTP_PORT, timeout=30)
         else:
@@ -196,10 +199,11 @@ def send_email(subject: str, body: str, to_emails: list, attachments: list = Non
             server.starttls()
         server.login(EMAIL_SMTP_USER, EMAIL_SMTP_PASSWORD)
         print(f"[DEBUG] 登录成功, 开始发送邮件...")
-        server.sendmail(EMAIL_SMTP_USER, to_emails, msg.as_string())
+        all_recipients = to_emails + (cc_emails if cc_emails else [])
+        server.sendmail(EMAIL_SMTP_USER, all_recipients, msg.as_string())
         server.quit()
 
-        print(f"[OK] 邮件已发送至: {', '.join(to_emails)}")
+        print(f"[OK] 邮件已发送至: {', '.join(to_emails)}{' (抄送: ' + ', '.join(cc_emails) + ')' if cc_emails else ''}")
         return True
 
     except smtplib.SMTPException as e:
@@ -311,6 +315,18 @@ def build_email_body(report_name: str, report_content: str, date_desc: str) -> s
             processed_lines.append(line)
         else:
             processed_lines.append(f'<p style="margin: 5px 0;">{line}</p>')
+    html_content = '\n'.join(processed_lines)
+
+    # 移除开头的标题（只保留日期和正文）
+    lines = html_content.split('\n')
+    processed_lines = []
+    skip_heading_count = 0
+    for line in lines:
+        # 跳过开头的连续标题（h2/h3/h4），最多跳过前3个
+        if skip_heading_count < 3 and (line.startswith('<h2>') or line.startswith('<h3>') or line.startswith('<h4>')):
+            skip_heading_count += 1
+            continue
+        processed_lines.append(line)
     html_content = '\n'.join(processed_lines)
 
     # 包装 - 简洁口语化
@@ -478,14 +494,18 @@ def send_personal_report_email(member: dict, report_path: str, report_type: str 
         desc_match = re.search(r'_(\d{4}-\d{2}-\d{2})_(.+?)\.md$', report_path)
         date_desc = desc_match.group(2) if desc_match else ""
 
-        report_name = f"{member['name']}工作日报"
+        report_name = f"{member['name']}工作{report_type}"
         # 邮件标题简洁明了
         subject = f"【{member['name']}】{date_str} {date_desc}"
 
         body = build_email_body(report_name, report_content, date_str)
 
         to_emails = [member['email']]
-        result = send_email(subject, body, to_emails, attachments=[report_path])
+        # 如果配置了上级收件人，添加到抄送列表
+        cc_emails = []
+        if PERSONAL_REPORT_RECIPIENT:
+            cc_emails = [PERSONAL_REPORT_RECIPIENT]
+        result = send_email(subject, body, to_emails, attachments=[report_path], cc_emails=cc_emails)
 
         return result
 
@@ -530,7 +550,7 @@ def send_project_report_email(project_name: str, report_path: str, report_type: 
         desc_match = re.search(r'_(\d{4}-\d{2}-\d{2})_(.+?)\.md$', report_path)
         date_desc = desc_match.group(2) if desc_match else ""
 
-        report_name = f"{project_name}项目进度"
+        report_name = project_name
         # 邮件标题简洁明了
         subject = f"【项目进度】{project_name} {date_str} {date_desc}"
 
