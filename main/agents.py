@@ -39,7 +39,7 @@ def call_llm(prompt: str, system: str = None, model: str = None) -> str:
     config = dict(row)
     api_key = config.get('api_key', '')
     base_url = config.get('base_url', 'https://api.minimaxi.com/anthropic')
-    model = model or config.get('model_name', 'MiniMax-M2.7')
+    model = model or config.get('model_name', 'MiniMax-M3')
     temperature = config.get('temperature', 0.3)  # 降低温度以保持一致性
 
     if not api_key:

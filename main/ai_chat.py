@@ -36,9 +36,9 @@ def call_llm(prompt: str, system: str = None) -> str:
     config = dict(row)
     api_key = config.get('api_key')
     base_url = config.get('base_url', 'https://api.minimaxi.com/anthropic')
-    model = config.get('model_name', 'MiniMax-M2.7')
-    max_tokens = config.get('max_tokens', 10000)
-    temperature = config.get('temperature', 0.5)
+    model = config.get('model_name', 'MiniMax-M3')
+    max_tokens = config.get('max_tokens', 100000)
+    temperature = config.get('temperature', 0.6)
 
     if not api_key:
         return jsonify({'error': 'LLM API Key未配置'}), 500
@@ -798,7 +798,7 @@ def get_llm_config_dict():
         "provider": "minimax",
         "api_key": "",
         "base_url": "https://api.minimaxi.com/anthropic",
-        "model_name": "MiniMax-M2.7"
+        "model_name": "MiniMax-M3"
     }
 
 

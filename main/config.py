@@ -9,18 +9,22 @@ load_dotenv()
 # --- SMTP 密码从 .env 文件获取（不在此处硬编码） ---
 
 # --- 项目信息 ---
-PROJECT1_NAME = "数据平台后端（cyber-platform）"
-PROJECT1_REPO_PATH = r"C:\workspace\datacyber\cyber-platform"
-
-PROJECT2_NAME = "Agent项目（cyber-agent）"
-PROJECT2_REPO_PATH = r"C:\workspace\datacyber\cyber-agent"
+# 格式: 项目键 = { "name": 显示名, "local": 本地仓库路径, "remote": 远程仓库URL }
+PROJECTS = {
+    "platform": {
+        "name": "数据平台后端（cyber-platform）",
+        "local": r"C:\workspace\datacyber\cyber-platform",
+        "remote": "http://172.18.1.181/datacyber/cyber-platform.git"
+    },
+    "agent": {
+        "name": "Agent项目（cyber-agent）",
+        "local": r"C:\workspace\datacyber\cyber-agent",
+        "remote": "http://172.18.1.181/cyberagent/cyber-agent.git"
+    }
+}
 
 # --- 本地规划文件目录 ---
 PLAN_DATA_DIR = r"C:\workspace\pywork\work_report\input\plan"
-
-# --- 规划文件子目录名称（与input目录下的子目录名对应） ---
-PLATFORM_DIR = "platform"
-AGENT_DIR = "agent"
 
 # --- 日报时间策略配置 ---
 # DAILY_REPORT_MODE: "auto"=自动判断, "manual"=手动指定天数
@@ -43,9 +47,9 @@ COMPLETED_STATUS = "已完成"
 MAX_PENDING_TASKS = 10  # 每人最多显示待办任务数
 
 # --- 大模型参数 ---
-MAX_DIFF_LINES = 5000  # git diff 输出最大行数，避免超出模型上下文
+MAX_DIFF_LINES = 10000  # git diff 输出最大行数，避免超出模型上下文
 MODEL_NAME = os.getenv("MODEL_NAME", "MiniMax-M2.7")
-MAX_TOKENS = 10000
+MAX_TOKENS = 100000
 TEMPERATURE = 0.5
 
 # --- 团队成员配置 ---
@@ -53,7 +57,7 @@ TEMPERATURE = 0.5
 # 注意：一个人在不同的项目中可以有不同的角色，多个角色用英文逗号分隔
 # 注意：一个人在一个项目中只会输出一份综合报告，不会按角色输出多份
 # 注意：TEAM_MEMBER_SOURCE 控制成员数据来源："config"=手动配置, "git"=从Git提交记录自动获取
-TEAM_MEMBER_SOURCE = "config"  # "config" 或 "git"
+TEAM_MEMBER_SOURCE = "git"  # "config" 或 "git"
 
 # 手动配置的团队成员（TEAM_MEMBER_SOURCE="config" 时使用）
 TEAM_MEMBERS = [
@@ -91,7 +95,7 @@ EMAIL_FROM_NAME = "工作汇报"
 TEAM_MEMBER_SEND_EMAIL = True
 
 # 个人周报收件人邮箱（上级/负责人邮箱），为空则只发送给成员自己
-PERSONAL_REPORT_RECIPIENT = "zl@datacyber.com"
+PERSONAL_REPORT_RECIPIENT = ["zl@datacyber.com","liuxiaohui@datacyber.com"]
 
 # 发送个人报告时的成员范围模式
 # "all" = 发送给所有团队成员
@@ -103,8 +107,8 @@ TEAM_MEMBER_EMAIL_MODE = "select"
 # 如果项目不在配置中，则不发送项目报告邮件
 # 阿里邮箱（工作邮箱）
 PROJECT_REPORT_RECIPIENTS = {
-    "platform": ["lyy@datacyber.com"],
-    "agent": ["lyy@datacyber.com"]
+    "platform": ["lyy@datacyber.com","liuxiaohui@datacyber.com"],
+    "agent": ["liuxiaohui@datacyber.com"]
 }
 
 # 也可以设置一个全局默认收件人列表，用于所有项目

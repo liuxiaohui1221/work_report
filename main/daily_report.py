@@ -17,9 +17,8 @@ from dotenv import load_dotenv
 import anthropic
 import openpyxl
 from config import (
-    PROJECT1_NAME, PROJECT1_REPO_PATH,
-    PROJECT2_NAME, PROJECT2_REPO_PATH,
-    PLAN_DATA_DIR, PLATFORM_DIR, AGENT_DIR,
+    PROJECTS,
+    PLAN_DATA_DIR,
     MAX_DIFF_LINES, MODEL_NAME, MAX_TOKENS, TEMPERATURE,
     TEAM_MEMBERS, TEAM_MEMBER_SOURCE, DEFAULT_ROLE,
     DAILY_REPORT_MODE, DAILY_REPORT_DAYS, MORNING_HOUR, EVENING_HOUR,
@@ -38,7 +37,6 @@ load_dotenv()
 
 MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY")
 MINIMAX_BASE_URL = os.getenv("MINIMAX_BASE_URL", "https://api.minimaxi.com/anthropic")
-print(MINIMAX_API_KEY)
 
 def load_prompt_file(filepath: str) -> str:
     """从md文件加载prompt内容"""
@@ -195,7 +193,7 @@ def get_today_authors(repo_path: str) -> list:
 def get_all_git_authors() -> list:
     """获取所有项目在统计范围内的所有唯一Git作者"""
     since, until, desc = get_report_date_range()
-    repo_map = {PLATFORM_DIR: PROJECT1_REPO_PATH, AGENT_DIR: PROJECT2_REPO_PATH}
+    repo_map = {k: v["local"] for k, v in PROJECTS.items()}
 
     all_authors = {}
     for project, repo_path in repo_map.items():
@@ -480,19 +478,15 @@ def generate_pending_tasks_section(person_name: str, project_roles: dict) -> str
 
 def get_repo_path_for_project(project: str) -> str:
     """获取项目对应的仓库路径"""
-    if project == PLATFORM_DIR:
-        return PROJECT1_REPO_PATH
-    elif project == AGENT_DIR:
-        return PROJECT2_REPO_PATH
+    if project in PROJECTS:
+        return PROJECTS[project]["local"]
     return None
 
 
 def get_project_name(project: str) -> str:
     """获取项目显示名称"""
-    if project == PLATFORM_DIR:
-        return PROJECT1_NAME
-    elif project == AGENT_DIR:
-        return PROJECT2_NAME
+    if project in PROJECTS:
+        return PROJECTS[project]["name"]
     return project
 
 
@@ -509,9 +503,9 @@ def generate_personal_context(member: dict, all_members: list) -> str:
         repo_path = get_repo_path_for_project(project)
         git_commits[project] = get_today_commits(repo_path)
         # 获取本人的提交记录（含hash用于追溯）
-        personal_commits_with_hash[project] = get_today_commits_with_hash_for_author(repo_path, member["git_name"], member["email"])
+        personal_commits_with_hash[project] = get_today_commits_with_hash_for_author(repo_path, member.get("git_name", ""), member["email"])
 
-        diff = get_today_diff(repo_path, author=member["git_name"])
+        diff = get_today_diff(repo_path, author=member.get("git_name", "") or member.get("email", ""))
         if diff.startswith("今日无代码变更") or diff.startswith("获取Git diff失败"):
             diff_email = get_today_diff(repo_path, author=member["email"])
             if not diff_email.startswith("获取Git diff失败"):
@@ -564,7 +558,7 @@ def generate_personal_context(member: dict, all_members: list) -> str:
 
 {pending_section}
 
-人员信息：{member['name']}，Git用户名：{member['git_name']}，邮箱：{member['email']}"""
+人员信息：{member.get('name', '')}，Git用户名：{member.get('git_name', '')}，邮箱：{member.get('email', '')}"""
     return context, ",".join(all_roles)
 
 
@@ -577,7 +571,7 @@ def generate_project_context(project: str, all_members: list) -> str:
     member_diffs = []
     for member in all_members:
         if project in member["project_roles"]:
-            diff = get_today_diff(repo_path, author=member["git_name"])
+            diff = get_today_diff(repo_path, author=member.get("git_name") or member.get("email"))
             if diff.startswith("今日无代码变更") or diff.startswith("获取Git diff失败"):
                 diff_email = get_today_diff(repo_path, author=member["email"])
                 if not diff_email.startswith("获取Git diff失败"):
@@ -615,16 +609,14 @@ def generate_report(context: str, prompt_file: str, **format_kwargs) -> str:
     prompt_template = load_prompt_file(prompt_file)
     system_prompt = prompt_template.format(**format_kwargs)
 
-    response = client.messages.create(
+    with client.messages.stream(
         model=MODEL_NAME,
         max_tokens=MAX_TOKENS,
         system=system_prompt,
         messages=[{"role": "user", "content": [{"type": "text", "text": context}]}],
         temperature=TEMPERATURE,
-    )
-
-    text_blocks = [block.text for block in response.content if block.type == "text"]
-    return "\n".join(text_blocks)
+    ) as stream:
+        return "".join([text for text in stream.text_stream])
 
 
 def get_role_display(role: str) -> str:
@@ -647,7 +639,7 @@ def get_roles_display(roles_str: str) -> str:
 def discover_team_members_from_git() -> list:
     """从Git提交记录自动发现团队成员"""
     all_authors = {}
-    repo_map = {PLATFORM_DIR: PROJECT1_REPO_PATH, AGENT_DIR: PROJECT2_REPO_PATH}
+    repo_map = {k: v["local"] for k, v in PROJECTS.items()}
 
     for project, repo_path in repo_map.items():
         authors = get_today_authors(repo_path)
@@ -699,13 +691,32 @@ if __name__ == "__main__":
     # 获取团队成员（根据配置决定来源）
     team_members = get_team_members()
 
+    # git模式下，先让用户选择要生成日报的成员
+    if TEAM_MEMBER_SOURCE == "git" and team_members:
+        print("\n=== 选择要生成报告的成员 ===")
+        for i, m in enumerate(team_members, 1):
+            print(f"{i}. {m['name']} <{m['email']}>")
+        sel = input("选择编号（逗号分隔，如 1,3，0=全部）: ").strip()
+        if sel == "0" or sel == "":
+            selected_members = team_members
+        else:
+            try:
+                indices = [int(x.strip()) - 1 for x in sel.split(",")]
+                selected_members = [team_members[i] for i in indices if 0 <= i < len(team_members)]
+            except ValueError:
+                print("[WARN] 输入无效，默认为全部成员")
+                selected_members = team_members
+        print(f"[INFO] 将只为以下 {len(selected_members)} 位成员生成日报: {[m['name'] for m in selected_members]}")
+    else:
+        selected_members = team_members
+
     # 收集待发送的报告信息（先生成报告，暂不发送邮件）
     personal_reports = []  # [(member, filepath), ...]
     project_reports = []   # [(project_name, filepath, recipients), ...]
 
     # 1. 生成个人日报
     print("=== 生成个人日报 ===")
-    for member in team_members:
+    for member in selected_members:
         ctx, roles_str = generate_personal_context(member, team_members)
         role_display = get_roles_display(roles_str)
         print(f"--- 为 {member['name']}（{role_display}）生成日报 ---")
@@ -714,7 +725,7 @@ if __name__ == "__main__":
             PERSONAL_DAILY_PROMPT_FILE,
             MY_NAME=member['name'],
             MY_ROLE=role_display,
-            MY_GIT_NAME=member['git_name'],
+            MY_GIT_NAME=member.get('git_name') or member.get('name') or '',
             MY_EMAIL=member['email']
         )
         filename = f"{member['name']}_日报_{date_str}_{date_desc}.md"
@@ -726,7 +737,7 @@ if __name__ == "__main__":
 
     # 2. 生成项目日报
     print("\n=== 生成项目日报 ===")
-    for project in [PLATFORM_DIR, AGENT_DIR]:
+    for project in PROJECTS:
         print(f"--- 为 {get_project_name(project)} 生成日报 ---")
         ctx = generate_project_context(project, team_members)
         report = generate_report(
@@ -771,7 +782,7 @@ if __name__ == "__main__":
 
         # 为每个项目选择项目报告收件人
         project_report_recipients = {}  # {project_name: [emails]}
-        for project in [PLATFORM_DIR, AGENT_DIR]:
+        for project in PROJECTS:
             project_name = get_project_name(project)
             # 获取该项目相关的Git作者（按项目过滤）
             project_authors = [a for a in git_authors if project in a.get("projects", [])]
@@ -798,7 +809,7 @@ if __name__ == "__main__":
                     send_personal_report_email(member, filepath, "日报")
             # 发送项目报告邮件
             for project_name, filepath, _ in project_reports:
-                project_key = PLATFORM_DIR if "数据平台" in project_name else AGENT_DIR
+                project_key = "platform" if "数据平台" in project_name else "agent"
                 recipients = project_report_recipients.get(project_key, [])
                 if recipients:
                     print(f"[DEBUG] 项目报告收件人: project={project_name}, recipients={recipients}")

@@ -782,7 +782,7 @@ body {
                     </div>
                     <div class="chat-input-area" id="chatInputArea">
                         <select id="chatModelSelect" class="form-select" style="width:120px;flex-shrink:0;">
-                            <option value="MiniMax-M2.7">MiniMax-M2.7</option>
+                            <option value="MiniMax-M3">MiniMax-M3</option>
                             <option value="gpt-4o">GPT-4o</option>
                             <option value="claude-3-5">Claude 3.5</option>
                         </select>
@@ -912,7 +912,7 @@ body {
 
                 <div class="form-group">
                     <label class="form-label">模型名称</label>
-                    <input type="text" class="form-input" id="llmModel" placeholder="MiniMax-M2.7">
+                    <input type="text" class="form-input" id="llmModel" placeholder="MiniMax-M3">
                 </div>
 
                 <div style="margin-top:24px;display:flex;gap:12px;">
@@ -1204,7 +1204,7 @@ body {
 
             // 调用AI API
             try {
-                const model = document.getElementById('chatModelSelect')?.value || 'MiniMax-M2.7';
+                const model = document.getElementById('chatModelSelect')?.value || 'MiniMax-M3';
                 const res = await fetch('/api/ai/chat/stream', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },

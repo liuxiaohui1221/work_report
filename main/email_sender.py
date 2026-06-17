@@ -501,10 +501,11 @@ def send_personal_report_email(member: dict, report_path: str, report_type: str 
         body = build_email_body(report_name, report_content, date_str)
 
         to_emails = [member['email']]
-        # 如果配置了上级收件人，添加到抄送列表
+        # 如果配置了上级收件人，添加到抄送列表（去重，避免和to_emails重复）
         cc_emails = []
         if PERSONAL_REPORT_RECIPIENT:
-            cc_emails = [PERSONAL_REPORT_RECIPIENT]
+            cc_list = PERSONAL_REPORT_RECIPIENT if isinstance(PERSONAL_REPORT_RECIPIENT, list) else [PERSONAL_REPORT_RECIPIENT]
+            cc_emails = [e for e in cc_list if e != member['email']]
         result = send_email(subject, body, to_emails, attachments=[report_path], cc_emails=cc_emails)
 
         return result

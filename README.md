@@ -80,7 +80,7 @@ TEAM_MEMBERS = [
 DEFAULT_ROLE = "developer"
 
 # LLM 配置
-MODEL_NAME = "MiniMax-M2.7"
+MODEL_NAME = "MiniMax-M3"
 ```
 
 ### 团队成员来源

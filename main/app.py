@@ -883,7 +883,7 @@ def get_llm_config():
             "provider": "minimax",
             "api_key": "",
             "base_url": "https://api.minimaxi.com/anthropic",
-            "model_name": "MiniMax-M2.7",
+            "model_name": "MiniMax-M3",
             "max_tokens": 10000,
             "temperature": 0.5
         })
@@ -897,7 +897,7 @@ def save_llm_config():
     provider = data.get('provider', 'minimax')
     api_key = data.get('api_key', '')
     base_url = data.get('base_url', 'https://api.minimaxi.com/anthropic')
-    model_name = data.get('model_name', 'MiniMax-M2.7')
+    model_name = data.get('model_name', 'MiniMax-M3')
     max_tokens = data.get('max_tokens', 10000)
     temperature = data.get('temperature', 0.5)
 
@@ -947,7 +947,7 @@ def test_llm_connection():
     provider = data.get('provider', 'minimax')
     api_key = data.get('api_key', '')
     base_url = data.get('base_url', '')
-    model_name = data.get('model_name', 'MiniMax-M2.7')
+    model_name = data.get('model_name', 'MiniMax-M3')
 
     if not api_key:
         return jsonify({"success": False, "error": "API Key不能为空"})
