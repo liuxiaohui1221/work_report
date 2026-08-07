@@ -10,18 +10,23 @@ load_dotenv()
 
 # --- 项目信息 ---
 # 格式: 项目键 = { "name": 显示名, "local": 本地仓库路径, "remote": 远程仓库URL }
+# 2026-08-07 取消 cyber-agent 项目：该项目已被 dataagent 替代
+# 2026-08-07 改为扫描 dataagent 这一个 GitLab 项目（deer-flow 是 dataagent 的 vendor 子目录）
+# 2026-08-07 新增配置：只有成员有代码变更的项目才会在周报中显示
 PROJECTS = {
-    "platform": {
-        "name": "数据平台后端（cyber-platform）",
-        "local": r"C:\workspace\datacyber\cyber-platform",
-        "remote": "http://172.18.1.181/datacyber/cyber-platform.git"
-    },
-    "agent": {
-        "name": "Agent项目（cyber-agent）",
-        "local": r"C:\workspace\datacyber\cyber-agent",
-        "remote": "http://172.18.1.181/cyberagent/cyber-agent.git"
+    "dataagent": {
+        "name": "DataAgent项目",
+        "local": r"C:\workspace\datacyber\dataagent",
+        "remote": "http://172.18.1.181/cyberagent/cyber-agent-loop.git"
     }
 }
+
+# --- 个人周报过滤配置 ---
+# 只有成员有代码变更的项目才会在个人周报中显示
+# 默认为 True（开启过滤）；设置为 False 可关闭此功能
+FILTER_PROJECTS_WITHOUT_CHANGES = True
+# 过滤时使用的 Git 作者邮箱（用于判断成员是否有代码变更）
+FILTER_AUTHOR_EMAIL = "liuxiaohui@datacyber.com"
 
 # --- 本地规划文件目录 ---
 PLAN_DATA_DIR = r"C:\workspace\pywork\work_report\input\plan"
@@ -65,14 +70,26 @@ TEAM_MEMBERS = [
           "name": "刘小辉",
           "email": "liuxiaohui@datacyber.com",  # 改这里
           "project_roles": {
-              "platform": "developer",
-              "agent": "architecture"
+              "dataagent": "architecture",
+              "deer-flow": "architecture"
           }
       }
   ]
 
 # Git自动发现的默认角色（TEAM_MEMBER_SOURCE="git" 时使用）
 DEFAULT_ROLE = "developer"  # 从Git自动发现的成员默认角色
+
+# --- GitLab 配置 ---
+# GitLab 服务器地址
+GITLAB_URL = "http://172.18.1.181"
+# GitLab 私有 Token（从 .env 文件读取）
+GITLAB_PRIVATE_TOKEN = os.getenv("GITLAB_PRIVATE_TOKEN", "")
+# GitLab API 模式开关
+# True = 不依赖 PROJECTS 配置，从 GitLab 动态获取用户有权限的所有项目
+# False = 使用本地 PROJECTS 配置（传统模式）
+GITLAB_API_MODE = False
+# GitLab API 调用间隔（秒），避免限流
+GITLAB_API_RATE_LIMIT = 1
 
 # --- 邮件发送配置 ---
 # 全局开关：是否启用邮件发送功能
@@ -94,8 +111,11 @@ EMAIL_FROM_NAME = "工作汇报"
 # 是否给团队成员发送个人报告（True=发送，False=不发送）
 TEAM_MEMBER_SEND_EMAIL = True
 
+# 是否生成并发送项目周报（2026-08-08 重启：用户要求恢复项目周报）
+SEND_PROJECT_REPORT = True
+
 # 个人周报收件人邮箱（上级/负责人邮箱），为空则只发送给成员自己
-PERSONAL_REPORT_RECIPIENT = ["zl@datacyber.com","liuxiaohui@datacyber.com"]
+PERSONAL_REPORT_RECIPIENT = ["zl@datacyber.com","liuxiaohui@datacyber.com","ypf@datacyber.com","songhongxin@datacyber.com"]
 
 # 发送个人报告时的成员范围模式
 # "all" = 发送给所有团队成员
@@ -105,10 +125,10 @@ TEAM_MEMBER_EMAIL_MODE = "select"
 # 项目报告邮件收件人配置
 # 可以指定多个项目的收件人，格式：项目名=[收件人邮箱列表]
 # 如果项目不在配置中，则不发送项目报告邮件
-# 阿里邮箱（工作邮箱）
+# 2026-08-07 取消 cyber-agent 项目：该项目已被 dataagent 替代
 PROJECT_REPORT_RECIPIENTS = {
-    "platform": ["lyy@datacyber.com","liuxiaohui@datacyber.com"],
-    "agent": ["liuxiaohui@datacyber.com"]
+    "dataagent": ["liuxiaohui@datacyber.com"],
+    "deer-flow": ["liuxiaohui@datacyber.com"]
 }
 
 # 也可以设置一个全局默认收件人列表，用于所有项目

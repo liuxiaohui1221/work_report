@@ -22,9 +22,15 @@ from config import (
     MAX_DIFF_LINES, MODEL_NAME, MAX_TOKENS, TEMPERATURE,
     TEAM_MEMBERS, TEAM_MEMBER_SOURCE, DEFAULT_ROLE,
     EMAIL_ENABLED, TEAM_MEMBER_SEND_EMAIL,
-    PROJECT_REPORT_RECIPIENTS, DEFAULT_PROJECT_RECIPIENTS
+    PROJECT_REPORT_RECIPIENTS, DEFAULT_PROJECT_RECIPIENTS,
+    PERSONAL_REPORT_RECIPIENT,
+    GITLAB_URL, GITLAB_PRIVATE_TOKEN, GITLAB_API_MODE,
+    FILTER_PROJECTS_WITHOUT_CHANGES, FILTER_AUTHOR_EMAIL,
+    SEND_PROJECT_REPORT,
 )
-from email_sender import send_personal_report_email, send_project_report_email
+from email_sender import send_personal_report_email, send_project_report_email, compute_personal_recipients
+from gitlab_client import GitLabClient, get_user_gitlab_projects, get_user_commits_from_gitlab
+from sent_log import SentLog
 
 # Prompt 文件路径
 PROMPTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "prompts")
@@ -66,7 +72,19 @@ def get_week_date_range():
     return start, end
 
 
-def get_git_commits_with_hash(repo_path: str) -> str:
+def get_gitlab_commit_url(project_key: str, commit_hash: str) -> str:
+    """根据项目键获取 GitLab commit 链接"""
+    if project_key and project_key in PROJECTS:
+        remote = PROJECTS[project_key].get("remote", "")
+        if remote:
+            # 将 .git 后缀去掉，获取项目基础 URL
+            base_url = remote.rstrip("/").replace(".git", "")
+            # GitLab commit URL 格式: {base_url}/-/commit/{hash}
+            return f"{base_url}/-/commit/{commit_hash}"
+    return commit_hash
+
+
+def get_git_commits_with_hash(repo_path: str, project_key: str = None) -> str:
     """获取指定 Git 仓库的本周提交记录（包含完整hash用于追溯）"""
     start, end = get_week_date_range()
     since = start.strftime("%Y-%m-%d")
@@ -94,7 +112,12 @@ def get_git_commits_with_hash(repo_path: str) -> str:
                     message = parts[1]
                     author = parts[2]
                     date = parts[3]
-                    formatted.append(f"- [{commit_hash}] {message} ({author}, {date})")
+                    commit_url = get_gitlab_commit_url(project_key, commit_hash)
+                    if commit_url != commit_hash:
+                        # 可点击链接
+                        formatted.append(f"- [{commit_hash}]({commit_url}) {message} ({author}, {date})")
+                    else:
+                        formatted.append(f"- [{commit_hash}] {message} ({author}, {date})")
                 else:
                     formatted.append(line)
             return "\n".join(formatted)
@@ -105,7 +128,7 @@ def get_git_commits_with_hash(repo_path: str) -> str:
         return f"执行Git命令异常: {e}"
 
 
-def get_git_commits_with_hash_for_author(repo_path: str, author_name: str, author_email: str) -> str:
+def get_git_commits_with_hash_for_author(repo_path: str, author_name: str, author_email: str, project_key: str = None) -> str:
     """获取指定仓库本周本人的提交记录（包含完整hash用于追溯）"""
     start, end = get_week_date_range()
     since = start.strftime("%Y-%m-%d")
@@ -141,7 +164,12 @@ def get_git_commits_with_hash_for_author(repo_path: str, author_name: str, autho
                     message = parts[1]
                     author = parts[2]
                     date = parts[3]
-                    formatted.append(f"- [{commit_hash}] {message} ({author}, {date})")
+                    commit_url = get_gitlab_commit_url(project_key, commit_hash)
+                    if commit_url != commit_hash:
+                        # 可点击链接
+                        formatted.append(f"- [{commit_hash}]({commit_url}) {message} ({author}, {date})")
+                    else:
+                        formatted.append(f"- [{commit_hash}] {message} ({author}, {date})")
                 else:
                     formatted.append(line)
             commits = "\n".join(formatted) if formatted else "本周无提交记录"
@@ -159,7 +187,12 @@ def get_git_commits_with_hash_for_author(repo_path: str, author_name: str, autho
                     message = parts[1]
                     author = parts[2]
                     date = parts[3]
-                    formatted.append(f"- [{commit_hash}] {message} ({author}, {date})")
+                    commit_url = get_gitlab_commit_url(project_key, commit_hash)
+                    if commit_url != commit_hash:
+                        # 可点击链接
+                        formatted.append(f"- [{commit_hash}]({commit_url}) {message} ({author}, {date})")
+                    else:
+                        formatted.append(f"- [{commit_hash}] {message} ({author}, {date})")
                 else:
                     formatted.append(line)
             commits = "\n".join(formatted) if formatted else "本周无提交记录"
@@ -387,8 +420,22 @@ def get_remote_git_diff_all_branches(remote_url: str, since: str, until: str, au
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
-def read_local_plan_files(project: str = None) -> str:
-    """从本地读取 Excel 或 Markdown 规划文件，合并为文本"""
+def read_local_plan_files(project: str = None, max_age_days: int = 0) -> str:
+    """从本地读取 Excel 或 Markdown 规划文件，合并为文本
+
+    2026-08-08 改造：检查文件 mtime，超过 max_age_days 天的文件视为过期，跳过不读。
+    这样周报发送时只会用"最近更新过"的计划，避免 stale 数据。
+
+    Args:
+        project: 项目子目录名（如 "dataagent"）
+        max_age_days: 最大允许的"未更新天数"，默认 0 = 只读今天改过的文件。
+                       设为 7 = 最近一周改过的都接受。
+
+    Returns:
+        str: 合并后的计划文本。如果所有文件都过期或不存在，
+             返回带"未找到可用计划文件"提示的占位文本。
+    """
+    from datetime import datetime, timedelta
     base_dir = PLAN_DATA_DIR
     if project:
         project_subdir = os.path.join(PLAN_DATA_DIR, project)
@@ -398,18 +445,22 @@ def read_local_plan_files(project: str = None) -> str:
         else:
             base_dir = PLAN_DATA_DIR
 
-    if base_dir and os.path.isdir(base_dir):
-        files = []
-        for f in os.listdir(base_dir):
-            if f.endswith('.xlsx') or f.endswith('.md'):
-                files.append(os.path.join(base_dir, f))
-        if not files:
-            return f"（未在 {project or '根目录'} 下找到任何 .xlsx 或 .md 文件）"
-    else:
+    if not base_dir or not os.path.isdir(base_dir):
         return f"（未配置规划文件路径，请设置 PLAN_DATA_DIR）"
 
+    today = datetime.now().date()
+    cutoff = today - timedelta(days=max_age_days)
+    skipped = []
     content_parts = []
-    for filepath in files:
+
+    for f in os.listdir(base_dir):
+        if not (f.endswith('.xlsx') or f.endswith('.md')):
+            continue
+        filepath = os.path.join(base_dir, f)
+        mtime = datetime.fromtimestamp(os.path.getmtime(filepath)).date()
+        if mtime < cutoff:
+            skipped.append(f"{f} (mtime={mtime})")
+            continue
         filename = os.path.basename(filepath)
         if filepath.endswith('.xlsx'):
             try:
@@ -419,17 +470,23 @@ def read_local_plan_files(project: str = None) -> str:
                 for row in sheet.iter_rows(values_only=True):
                     row_str = "\t".join([str(c) if c is not None else "" for c in row])
                     lines.append(row_str)
-                content_parts.append(f"### 文件: {filename} (Excel)\n" + "\n".join(lines))
+                content_parts.append(f"### 文件: {filename} (Excel, mtime={mtime})\n" + "\n".join(lines))
             except Exception as e:
                 content_parts.append(f"### 文件: {filename} (Excel) 读取失败: {e}")
         elif filepath.endswith('.md'):
             try:
                 with open(filepath, 'r', encoding='utf-8') as f:
                     md_content = f.read()
-                content_parts.append(f"### 文件: {filename} (Markdown)\n{md_content}")
+                content_parts.append(f"### 文件: {filename} (Markdown, mtime={mtime})\n{md_content}")
             except Exception as e:
                 content_parts.append(f"### 文件: {filename} (Markdown) 读取失败: {e}")
 
+    if not content_parts:
+        skip_msg = f"（跳过过期文件: {', '.join(skipped)}）" if skipped else ""
+        return f"（未在 {project or '根目录'} 下找到 max_age_days={max_age_days} 内的计划文件，请更新后重跑 {skip_msg}）"
+
+    if skipped:
+        print(f"[INFO] 跳过过期计划文件: {', '.join(skipped)}")
     return "\n\n".join(content_parts)
 
 
@@ -450,6 +507,23 @@ def get_repo_path_for_project(project: str) -> str:
     return None
 
 
+def member_has_changes_in_project(member: dict, project: str) -> bool:
+    """检查成员在指定项目中是否有代码变更"""
+    if not FILTER_PROJECTS_WITHOUT_CHANGES:
+        return True
+
+    repo_path = get_repo_path_for_project(project)
+    if not repo_path or not os.path.exists(repo_path):
+        return False
+
+    all_emails = member.get("all_emails", [member.get("email", "")])
+    for email in all_emails:
+        diff = get_git_diff(repo_path, author=email)
+        if diff and "本周无代码变更" not in diff and "（git diff执行失败）" not in diff and "（执行异常）" not in diff:
+            return True
+    return False
+
+
 def get_project_name(project: str) -> str:
     """获取项目显示名称"""
     if project in PROJECTS:
@@ -457,8 +531,23 @@ def get_project_name(project: str) -> str:
     return project
 
 
-def generate_personal_context(member: dict, all_members: list) -> str:
-    """生成个人周报上下文"""
+def generate_personal_context(member: dict, all_members: list,
+                              use_gitlab: bool = False,
+                              gitlab_url: str = None,
+                              gitlab_token: str = None) -> tuple:
+    """生成个人周报上下文
+
+    Args:
+        member: 成员信息 dict
+        all_members: 所有成员列表
+        use_gitlab: 是否从 GitLab 获取数据（不依赖本地 PROJECTS）
+        gitlab_url: GitLab 服务器地址
+        gitlab_token: GitLab 私有 token
+    """
+    if use_gitlab and gitlab_url and gitlab_token:
+        return generate_personal_context_from_gitlab(member, all_members, gitlab_url, gitlab_token)
+
+    # 原有 PROJECTS 模式逻辑
     plan_files = {}
     git_commits = {}
     personal_diffs = {}
@@ -466,7 +555,21 @@ def generate_personal_context(member: dict, all_members: list) -> str:
     project_role_map = member["project_roles"]
     all_emails = member.get("all_emails", [member["email"]])
 
+    # 过滤出成员有变更的项目
+    active_projects = []
     for project in project_role_map.keys():
+        if member_has_changes_in_project(member, project):
+            active_projects.append(project)
+
+    if not active_projects:
+        context = f"""### 本周无代码变更
+
+本周在所有项目中均无代码变更。
+
+人员信息：{member.get('name', '')}，Git用户名：{member.get('git_name', '')}，邮箱：{member.get('email', '')}"""
+        return context, ",".join(set(project_role_map.values()))
+
+    for project in active_projects:
         plan_files[project] = read_local_plan_files(project)
         repo_path = get_repo_path_for_project(project)
         git_commits[project] = get_git_commits(repo_path)
@@ -479,7 +582,7 @@ def generate_personal_context(member: dict, all_members: list) -> str:
             diff = get_git_diff(repo_path, author=git_author)
             if diff and "本周无代码变更" not in diff and "（git diff执行失败）" not in diff and "（执行异常）" not in diff:
                 merged_diff_lines.append(f"**[{email}]**\n{diff}")
-            commits = get_git_commits_with_hash_for_author(repo_path, email, email)
+            commits = get_git_commits_with_hash_for_author(repo_path, email, email, project_key=project)
             if commits and "本周无提交记录" not in commits:
                 merged_commit_lines.append(f"**[{email}]**\n{commits}")
 
@@ -487,24 +590,24 @@ def generate_personal_context(member: dict, all_members: list) -> str:
         personal_commits_with_hash[project] = "\n\n".join(merged_commit_lines) if merged_commit_lines else f"**{project}**\n本周无提交记录"
 
     plan_parts = []
-    for project in project_role_map.keys():
+    for project in active_projects:
         plan_parts.append(f"**{get_project_name(project)}（{project}目录）**\n{plan_files[project]}")
 
     commit_parts = []
     diff_parts = []
-    for project in project_role_map.keys():
+    for project in active_projects:
         commit_parts.append(f"**{get_project_name(project)}**\n{git_commits[project]}")
         diff_parts.append(f"**{get_project_name(project)}**\n{personal_diffs[project]}")
 
     # 收集所有角色用于prompt
     all_roles = set()
-    for roles_str in project_role_map.values():
-        for r in roles_str.split(","):
+    for project in active_projects:
+        for r in project_role_map[project].split(","):
             all_roles.add(r.strip())
 
     # 本人提交记录（含hash）用于追溯
     personal_commit_parts = []
-    for project in project_role_map.keys():
+    for project in active_projects:
         personal_commit_parts.append(f"**{get_project_name(project)}**\n{personal_commits_with_hash[project]}")
 
     context = f"""### 项目规划（本地文件）
@@ -526,13 +629,83 @@ def generate_personal_context(member: dict, all_members: list) -> str:
     return context, ",".join(all_roles)
 
 
+def generate_personal_context_from_gitlab(member: dict, all_members: list,
+                                         gitlab_url: str, private_token: str) -> tuple:
+    """从 GitLab 动态获取数据，生成个人周报上下文（不依赖 PROJECTS 配置）"""
+    start, end = get_week_date_range()
+    since = start.strftime("%Y-%m-%d")
+    until = end.strftime("%Y-%m-%d")
+
+    all_emails = member.get("all_emails", [member["email"]])
+    primary_email = member["email"]
+
+    # 从 GitLab 获取用户在所有项目中的提交
+    project_commits = get_user_commits_from_gitlab(gitlab_url, private_token, primary_email, since, until)
+
+    if not project_commits:
+        context = f"""### GitLab 项目提交（本周 {since} ~ {until}）
+
+未从 GitLab 获取到任何项目提交记录，可能是：
+1. GitLab Token 权限不足
+2. 该邮箱在 GitLab 上没有提交记录
+3. GitLab 服务器不可达
+
+人员信息：{member.get('name', '')}，Git用户名：{member.get('git_name', '')}，邮箱：{member.get('email', '')}"""
+        return context, "developer"
+
+    # 按项目组织上下文
+    commit_parts = []
+    diff_parts = []
+    personal_commit_parts = []
+
+    for project_path, project_data in project_commits.items():
+        project_name = project_data.get("name", project_path)
+        web_url = project_data.get("web_url", "")
+
+        # 全部成员的提交（只显示该用户自己的）
+        commit_parts.append(f"**{project_name}** ({project_path})\n{project_data.get('commits', '本周无提交记录')}")
+
+        # 本人提交记录（含 hash）
+        personal_commit_parts.append(f"**{project_name}** ({project_path})\n{project_data.get('commits', '本周无提交记录')}")
+
+        # 本人 diff
+        diff_text = project_data.get('diff', '本周无代码变更')
+        diff_parts.append(f"**{project_name}** ({project_path})\n{diff_text}")
+
+    context = f"""### GitLab 项目提交（本周 {since} ~ {until}）
+
+以下是本人在 GitLab 上有权限的所有项目的提交记录（按项目分类）：
+
+### 本周 Git 提交记录（全部成员）
+
+{chr(10).join(commit_parts)}
+
+### 本人本周提交记录（含提交号，用于追溯）
+
+{chr(10).join(personal_commit_parts)}
+
+### 本人本周代码变更 (Diff)
+
+{chr(10).join(diff_parts)}
+
+人员信息：{member.get('name', '')}，Git用户名：{member.get('git_name', '')}，邮箱：{member.get('email', '')}"""
+    return context, "developer"
+
+
 def generate_project_context(project: str, all_members: list) -> str:
-    """生成项目周报上下文"""
+    """生成项目周报上下文
+
+    2026-08-08 改造：在"全部成员提交"基础上，增加"各成员提交（含追溯链接）"段。
+    原因：format_commit_appendix 正则只识别 `- [hash](url) ... (author, YYYY-MM-DD)` 链接格式，
+    get_git_commits 返回的 `- hash - message` 格式不被识别，会导致项目周报漏掉 commit 附录。
+    修法：每个成员用 get_git_commits_with_hash_for_author 单独拉一次，拼出 hash-link 段。
+    """
     repo_path = get_repo_path_for_project(project)
     all_commits = get_git_commits(repo_path)
     plan_text = read_local_plan_files(project)
 
     member_diffs = []
+    member_commits_with_hash = []
     for member in all_members:
         if project in member["project_roles"]:
             git_author = member.get("git_name") or member.get("name") or member.get("email")
@@ -545,6 +718,16 @@ def generate_project_context(project: str, all_members: list) -> str:
             role_display = get_roles_display(roles_str)
             member_diffs.append(f"**{member['name']}（{role_display}）**\n{diff}")
 
+            # 拉该成员本周提交（含 hash 链接），供 format_commit_appendix 抽取
+            member_email = member.get("email", "")
+            member_commits = get_git_commits_with_hash_for_author(
+                repo_path, member.get("name", ""), member_email, project_key=project
+            )
+            if member_commits and "本周无提交记录" not in member_commits:
+                member_commits_with_hash.append(f"**[{member['name']} <{member_email}>]**\n{member_commits}")
+
+    commits_with_hash_section = "\n\n".join(member_commits_with_hash) if member_commits_with_hash else "本周无提交记录"
+
     context = f"""### 项目：{get_project_name(project)}
 
 ### 项目规划（{project}目录）
@@ -552,6 +735,9 @@ def generate_project_context(project: str, all_members: list) -> str:
 
 ### 本周 Git 提交记录（全部成员）
 {all_commits}
+
+### 各成员提交记录（含提交号，用于追溯）
+{commits_with_hash_section}
 
 ### 各成员代码变更
 {chr(10).join(member_diffs)}
@@ -581,7 +767,41 @@ def generate_report(context: str, prompt_file: str, user_requirement: str = None
         messages=[{"role": "user", "content": [{"type": "text", "text": user_message}]}],
         temperature=TEMPERATURE,
     ) as stream:
-        return stream.get_final_text()
+        text = stream.get_final_text()
+
+    # 兜底：去掉 LLM 误包的 ```markdown ... ``` 围栏
+    import re
+    text = re.sub(r'^```(?:markdown|md)?\s*\n', '', text.strip())
+    text = re.sub(r'\n```\s*$', '', text)
+    return text.strip()
+
+
+def format_commit_appendix(commits_text: str, max_lines: int = 30) -> str:
+    """把 commit 文本压缩成可追溯的附录（不计正文 600 字限制）
+    只识别 commit 行（形如 `- [hash](url) message (author, YYYY-MM-DD)`），
+    过滤掉 diff 内容（避免把代码变更误识别为 commit）。
+    """
+    if not commits_text or "本周无提交" in commits_text:
+        return ""
+    import re
+    # 匹配 commit 行：- [hash](url) ... (author, YYYY-MM-DD)
+    commit_pattern = re.compile(r'^\s*-\s+\[([0-9a-f]+)\]\([^)]+\)\s+.+\(\S+,\s*\d{4}-\d{2}-\d{2}\)')
+    commit_lines = []
+    for line in commits_text.splitlines():
+        m = commit_pattern.match(line)
+        if m:
+            commit_lines.append(line.strip())
+    if not commit_lines:
+        return ""
+    truncated = len(commit_lines) > max_lines
+    commit_lines = commit_lines[:max_lines]
+    appendix = "\n\n---\n\n## 📌 本周提交清单（追溯用）\n"
+    for cl in commit_lines:
+        cl_clean = cl.replace("**", "").strip()
+        appendix += f"\n{cl_clean}"
+    if truncated:
+        appendix += f"\n\n> 共 {len(commit_lines)} 条，已截断，完整列表见 git log"
+    return appendix
 
 
 def get_role_display(role: str) -> str:
@@ -638,6 +858,19 @@ def get_team_members() -> list:
 if __name__ == "__main__":
     import sys
     sys.stdout.reconfigure(encoding='utf-8')
+
+    # 测试模式：--test 强制只发给 liuxiaohui，CC 为空，主题加 [测试] 前缀
+    # 防止迭代期间误发邮件给 zl/ypf/songhongxin 等真实收件人
+    TEST_MODE = "--test" in sys.argv
+    if TEST_MODE:
+        sys.argv.remove("--test")
+        print("=" * 60)
+        print("⚠️  测试模式启用 ⚠️")
+        print("  - 收件人强制为 liuxiaohui@datacyber.com")
+        print("  - 抄送 (CC) 全部清空")
+        print("  - 主题前缀 [测试]")
+        print("  - sent_log 仍会记录（用 main/sent_log.py clear 清空）")
+        print("=" * 60)
 
     try:
         print(f">>> 正在提取本周数据并调用 {MODEL_NAME} 生成周报...\n")
@@ -752,6 +985,14 @@ if __name__ == "__main__":
         if not email_can_send:
             print("\n[WARNING] 邮件发送已禁用 (TEAM_MEMBER_SEND_EMAIL=False)，将跳过邮件发送")
 
+        # 判断是否使用 GitLab API 模式（不依赖 PROJECTS 配置）
+        use_gitlab_api = GITLAB_API_MODE and GITLAB_PRIVATE_TOKEN
+        if use_gitlab_api:
+            print(f"\n[INFO] GitLab API 模式已启用，将从 {GITLAB_URL} 动态获取所有项目提交记录")
+        else:
+            if GITLAB_API_MODE and not GITLAB_PRIVATE_TOKEN:
+                print("\n[WARNING] GITLAB_API_MODE=True 但 GITLAB_PRIVATE_TOKEN 未配置，将使用本地 PROJECTS 模式")
+
         # 1. 检查已存在的报告文件
         existing_personal_reports = {}
         existing_project_reports = {}
@@ -761,10 +1002,14 @@ if __name__ == "__main__":
             if os.path.exists(filepath):
                 existing_personal_reports[member['email']] = (member, filepath)
 
-        for project in PROJECTS:
-            filepath = os.path.join(project_output_dir, f"{get_project_name(project)}_周报_{date_str}.md")
-            if os.path.exists(filepath):
-                existing_project_reports[project] = filepath
+        # 2026-08-08 项目周报已关闭，不再加载已有的项目周报
+        if not SEND_PROJECT_REPORT:
+            existing_project_reports = {}
+        else:
+            for project in PROJECTS:
+                filepath = os.path.join(project_output_dir, f"{get_project_name(project)}_周报_{date_str}.md")
+                if os.path.exists(filepath):
+                    existing_project_reports[project] = filepath
 
         # 2. 判断是使用现有报告还是重新生成
         use_existing = False
@@ -808,26 +1053,33 @@ if __name__ == "__main__":
             print("\n=== 生成个人周报 ===")
             personal_report_map = {}
             for member in selected_members:
-                # 先检查该成员是否有实际代码变更
-                has_diff = False
-                for project in member.get("project_roles", {}).keys():
-                    repo_path = get_repo_path_for_project(project)
-                    if not repo_path:
+                # GitLab API 模式下跳过本地 PROJECTS 检查，直接从 GitLab 获取
+                if not use_gitlab_api:
+                    # 先检查该成员是否有实际代码变更（仅本地模式）
+                    has_diff = False
+                    for project in member.get("project_roles", {}).keys():
+                        repo_path = get_repo_path_for_project(project)
+                        if not repo_path:
+                            continue
+                        git_author = member.get("git_name") or member.get("name") or member.get("email")
+                        diff = get_git_diff(repo_path, author=git_author)
+                        if diff and "本周无代码变更" not in diff and "（git diff执行失败）" not in diff and "（执行异常）" not in diff:
+                            has_diff = True
+                            break
+                        diff_email = get_git_diff(repo_path, author=member.get("email"))
+                        if diff_email and "本周无代码变更" not in diff_email and "（git diff执行失败）" not in diff_email and "（执行异常）" not in diff_email:
+                            has_diff = True
+                            break
+                    if not has_diff:
+                        print(f"[WARN] {member['name']} <{member['email']}> 本周无代码变更，跳过生成周报")
                         continue
-                    git_author = member.get("git_name") or member.get("name") or member.get("email")
-                    diff = get_git_diff(repo_path, author=git_author)
-                    if diff and "本周无代码变更" not in diff and "（git diff执行失败）" not in diff and "（执行异常）" not in diff:
-                        has_diff = True
-                        break
-                    diff_email = get_git_diff(repo_path, author=member.get("email"))
-                    if diff_email and "本周无代码变更" not in diff_email and "（git diff执行失败）" not in diff_email and "（执行异常）" not in diff_email:
-                        has_diff = True
-                        break
-                if not has_diff:
-                    print(f"[WARN] {member['name']} <{member['email']}> 本周无代码变更，跳过生成周报")
-                    continue
 
-                ctx, roles_str = generate_personal_context(member, team_members)
+                ctx, roles_str = generate_personal_context(
+                    member, team_members,
+                    use_gitlab=use_gitlab_api,
+                    gitlab_url=GITLAB_URL if use_gitlab_api else None,
+                    gitlab_token=GITLAB_PRIVATE_TOKEN if use_gitlab_api else None
+                )
                 role_display = get_roles_display(roles_str)
                 print(f"--- 为 {member['name']}（{role_display}）生成周报 ---")
                 report = generate_report(
@@ -836,33 +1088,45 @@ if __name__ == "__main__":
                     user_requirement,
                     MY_NAME=member['name'],
                     MY_ROLE=role_display,
-            MY_GIT_NAME=member.get('git_name') or member.get('name') or '',
+                    MY_GIT_NAME=member.get('git_name') or member.get('name') or '',
                     MY_EMAIL=member['email']
                 )
+                # 追加 commit 附录（不计正文字数）
+                commit_appendix = format_commit_appendix(ctx, max_lines=20)
+                if commit_appendix:
+                    report = report.rstrip() + commit_appendix
                 filepath = os.path.join(person_output_dir, f"{member['name']}_{member['email']}_周报_{date_str}.md")
                 with open(filepath, "w", encoding="utf-8") as f:
                     f.write(report)
                 personal_report_map[member['email']] = (member, filepath)
                 print(f"[OK] {member['name']} 周报已保存: {filepath}")
 
-            # 生成项目周报
-            print("\n=== 生成项目周报 ===")
-            project_report_paths = []
-            for project in PROJECTS:
-                print(f"--- 为 {get_project_name(project)} 生成周报 ---")
-                ctx = generate_project_context(project, team_members)
-                report = generate_report(
-                    ctx,
-                    PROJECT_WEEKLY_PROMPT_FILE,
-                    user_requirement,
-                    PROJECT_NAME=get_project_name(project),
-                    PROJECT_DIR=project
-                )
-                filepath = os.path.join(project_output_dir, f"{get_project_name(project)}_周报_{date_str}.md")
-                with open(filepath, "w", encoding="utf-8") as f:
-                    f.write(report)
-                project_report_paths.append((project, filepath))
-                print(f"[OK] {get_project_name(project)} 周报已保存: {filepath}")
+            # 生成项目周报（2026-08-08 关闭：SEND_PROJECT_REPORT=False 时跳过）
+            if not SEND_PROJECT_REPORT:
+                print("\n=== 项目周报已关闭（SEND_PROJECT_REPORT=False），跳过 ===")
+                project_report_paths = []
+            else:
+                print("\n=== 生成项目周报 ===")
+                project_report_paths = []
+                for project in PROJECTS:
+                    print(f"--- 为 {get_project_name(project)} 生成周报 ---")
+                    ctx = generate_project_context(project, team_members)
+                    report = generate_report(
+                        ctx,
+                        PROJECT_WEEKLY_PROMPT_FILE,
+                        user_requirement,
+                        PROJECT_NAME=get_project_name(project),
+                        PROJECT_DIR=project
+                    )
+                    # 追加 commit 附录（不计正文字数）
+                    commit_appendix = format_commit_appendix(ctx, max_lines=30)
+                    if commit_appendix:
+                        report = report.rstrip() + commit_appendix
+                    filepath = os.path.join(project_output_dir, f"{get_project_name(project)}_周报_{date_str}.md")
+                    with open(filepath, "w", encoding="utf-8") as f:
+                        f.write(report)
+                    project_report_paths.append((project, filepath))
+                    print(f"[OK] {get_project_name(project)} 周报已保存: {filepath}")
 
         print(f"\n[INFO] 输出目录: {output_base}")
         print(f"[INFO] 个人周报: {person_output_dir}")
@@ -873,11 +1137,17 @@ if __name__ == "__main__":
             print("\n" + "=" * 60)
             print("邮件发送确认")
             print("=" * 60)
+            if TEST_MODE:
+                print("  ⚠️  测试模式：所有邮件只发给 liuxiaohui@datacyber.com，CC 为空")
             print("\n【周报文件】")
             personal_emails = [member['email'] for (member, path) in personal_report_map.values()]
+            if TEST_MODE:
+                personal_emails = ["liuxiaohui@datacyber.com"] * len(personal_emails)
             project_emails = []
             for proj_name, path in project_report_paths:
                 recips = PROJECT_REPORT_RECIPIENTS.get(proj_name, DEFAULT_PROJECT_RECIPIENTS)
+                if TEST_MODE:
+                    recips = ["liuxiaohui@datacyber.com"]
                 project_emails.extend(recips if recips else [])
             for name, (member, path) in personal_report_map.items():
                 print(f"  个人周报 - {name} <{member['email']}>: {path}")
@@ -887,31 +1157,168 @@ if __name__ == "__main__":
             print(f"项目周报发至: {', '.join(project_emails)}")
             print("\n请先预览以上报告文件，确认无误后再选择发送邮件。")
             print("\n选择发送方式:")
-            print("1. 发送全部邮件（个人周报 + 项目周报）")
-            print("2. 仅发送个人周报邮件")
-            print("3. 仅发送项目周报邮件")
-            print("4. 仅发送个人周报给指定成员")
-            print("5. 不发送邮件")
-            choice = input("\n请输入选项 (1-5，直接回车默认发送全部): ").strip()
+            if SEND_PROJECT_REPORT:
+                print("1. 发送全部邮件（个人周报 + 项目周报）")
+                print("2. 仅发送个人周报邮件")
+                print("3. 仅发送项目周报邮件")
+                print("4. 仅发送个人周报给指定成员")
+                print("5. 不发送邮件")
+            else:
+                print("  ⚠️  项目周报已关闭（2026-08-08），只发送个人周报")
+                print("1. 发送个人周报邮件")
+                print("2. 不发送邮件")
+            choice = input("\n请输入选项 (直接回车默认发送个人周报): ").strip()
 
-            if choice == "" or choice == "1":
+            if not SEND_PROJECT_REPORT:
+                # 项目周报已关闭：只发 / 不发 二选一
+                send_done = False
+                if choice in ("2", "5"):
+                    print("[INFO] 取消发送")
+                else:
+                    if choice not in ("", "1"):
+                        print("[INFO] 无效选项，默认发送个人周报")
+                    # 走个人周报发送逻辑
+                    sent_log = SentLog()
+                    for name, (member, path) in personal_report_map.items():
+                        if sent_log.is_sent(path):
+                            print(f"[SKIP] {member['name']} 个人周报内容未变，已发送过，跳过")
+                            continue
+                        if TEST_MODE:
+                            member_for_send = dict(member)
+                            member_for_send['email'] = "liuxiaohui@datacyber.com"
+                            to_emails = ["liuxiaohui@datacyber.com"]
+                            cc_emails = []
+                            if send_personal_report_email(member_for_send, path, "周报",
+                                                          exclude_from_cc=list(PERSONAL_REPORT_RECIPIENT or []),
+                                                          subject_prefix="[测试] "):
+                                import re
+                                date_match = re.search(r'_(\d{4}-\d{2}-\d{2})_', path)
+                                ds = date_match.group(1) if date_match else date_str
+                                sent_log.mark_sent(path, to_emails=to_emails, cc_emails=cc_emails,
+                                                    subject=f"[测试] 【{member['name']}】{ds}",
+                                                    report_type="personal")
+                        else:
+                            to_emails, cc_emails = compute_personal_recipients(member)
+                            if send_personal_report_email(member, path, "周报"):
+                                import re
+                                date_match = re.search(r'_(\d{4}-\d{2}-\d{2})_', path)
+                                ds = date_match.group(1) if date_match else date_str
+                                sent_log.mark_sent(path, to_emails=to_emails, cc_emails=cc_emails,
+                                                    subject=f"【{member['name']}】{ds}",
+                                                    report_type="personal")
+                send_done = True
+                if send_done:
+                    pass  # 跳过下面的 choice 分支
+            elif choice == "" or choice == "1":
                 # 发送全部邮件
-                for name, (member, path) in personal_report_map.items():
-                    send_personal_report_email(member, path, "周报")
+                # 先算所有项目周报的主收件人，个人周报 CC 时排除这些人（Fix 1 去重）
+                project_primary_recipients = set()
+                project_send_plan = []
                 for proj_name, path in project_report_paths:
                     recipients = PROJECT_REPORT_RECIPIENTS.get(proj_name, DEFAULT_PROJECT_RECIPIENTS)
+                    if TEST_MODE:
+                        recipients = ["liuxiaohui@datacyber.com"]
                     if recipients:
-                        send_project_report_email(proj_name, path, "周报", recipients)
+                        project_send_plan.append((proj_name, path, recipients))
+                        project_primary_recipients.update(recipients)
+
+                sent_log = SentLog()
+                # 发送项目周报
+                for proj_name, path, recipients in project_send_plan:
+                    if sent_log.is_sent(path):
+                        print(f"[SKIP] {proj_name} 项目周报内容未变，已发送过，跳过")
+                        continue
+                    subject_prefix = "[测试] " if TEST_MODE else ""
+                    if send_project_report_email(proj_name, path, "周报", recipients,
+                                                   subject_prefix=subject_prefix):
+                        sent_log.mark_sent(path, to_emails=recipients,
+                                            subject=f"{subject_prefix}【项目进度】{proj_name} {date_str}",
+                                            report_type="project")
+
+                # 发送个人周报（CC 排除已经是项目主收件人的人）
+                for name, (member, path) in personal_report_map.items():
+                    if sent_log.is_sent(path):
+                        print(f"[SKIP] {member['name']} 个人周报内容未变，已发送过，跳过")
+                        continue
+                    if TEST_MODE:
+                        # 测试模式：强制只发给 liuxiaohui，无 CC
+                        member_for_send = dict(member)
+                        member_for_send['email'] = "liuxiaohui@datacyber.com"
+                        to_emails = ["liuxiaohui@datacyber.com"]
+                        cc_emails = []
+                        # 关键：把 PERSONAL_REPORT_RECIPIENT 整体作为 exclude_from_cc，
+                        # 这样 cc_emails 计算后必为空
+                        if send_personal_report_email(member_for_send, path, "周报",
+                                                      exclude_from_cc=list(PERSONAL_REPORT_RECIPIENT or []),
+                                                      subject_prefix="[测试] "):
+                            import re
+                            date_match = re.search(r'_(\d{4}-\d{2}-\d{2})_', path)
+                            ds = date_match.group(1) if date_match else date_str
+                            sent_log.mark_sent(path, to_emails=to_emails, cc_emails=cc_emails,
+                                                subject=f"[测试] 【{member['name']}】{ds}",
+                                                report_type="personal")
+                    else:
+                        to_emails, cc_emails = compute_personal_recipients(
+                            member, exclude_from_cc=list(project_primary_recipients))
+                        if send_personal_report_email(member, path, "周报",
+                                                      exclude_from_cc=list(project_primary_recipients)):
+                            import re
+                            date_match = re.search(r'_(\d{4}-\d{2}-\d{2})_', path)
+                            ds = date_match.group(1) if date_match else date_str
+                            sent_log.mark_sent(path, to_emails=to_emails, cc_emails=cc_emails,
+                                                subject=f"【{member['name']}】{ds}",
+                                                report_type="personal")
             elif choice == "2":
                 # 仅发送个人周报
+                sent_log = SentLog()
                 for name, (member, path) in personal_report_map.items():
-                    send_personal_report_email(member, path, "周报")
-            elif choice == "3":
-                # 仅发送项目周报
-                for proj_name, path in project_report_paths:
-                    recipients = PROJECT_REPORT_RECIPIENTS.get(proj_name, DEFAULT_PROJECT_RECIPIENTS)
-                    if recipients:
-                        send_project_report_email(proj_name, path, "周报", recipients)
+                    if sent_log.is_sent(path):
+                        print(f"[SKIP] {member['name']} 个人周报内容未变，已发送过，跳过")
+                        continue
+                    if TEST_MODE:
+                        member_for_send = dict(member)
+                        member_for_send['email'] = "liuxiaohui@datacyber.com"
+                        to_emails = ["liuxiaohui@datacyber.com"]
+                        cc_emails = []
+                        if send_personal_report_email(member_for_send, path, "周报",
+                                                      exclude_from_cc=list(PERSONAL_REPORT_RECIPIENT or []),
+                                                      subject_prefix="[测试] "):
+                            import re
+                            date_match = re.search(r'_(\d{4}-\d{2}-\d{2})_', path)
+                            ds = date_match.group(1) if date_match else date_str
+                            sent_log.mark_sent(path, to_emails=to_emails, cc_emails=cc_emails,
+                                                subject=f"[测试] 【{member['name']}】{ds}",
+                                                report_type="personal")
+                    else:
+                        to_emails, cc_emails = compute_personal_recipients(member)
+                        if send_personal_report_email(member, path, "周报"):
+                            import re
+                            date_match = re.search(r'_(\d{4}-\d{2}-\d{2})_', path)
+                            ds = date_match.group(1) if date_match else date_str
+                            sent_log.mark_sent(path, to_emails=to_emails, cc_emails=cc_emails,
+                                                subject=f"【{member['name']}】{ds}",
+                                                report_type="personal")
+            elif SEND_PROJECT_REPORT and choice == "3":
+                # 仅发送项目周报（2026-08-08 项目周报已关闭）
+                if not SEND_PROJECT_REPORT:
+                    print("[INFO] 项目周报已关闭（SEND_PROJECT_REPORT=False），跳过 choice 3")
+                else:
+                    sent_log = SentLog()
+                    for proj_name, path in project_report_paths:
+                        recipients = PROJECT_REPORT_RECIPIENTS.get(proj_name, DEFAULT_PROJECT_RECIPIENTS)
+                        if TEST_MODE:
+                            recipients = ["liuxiaohui@datacyber.com"]
+                        if not recipients:
+                            continue
+                        if sent_log.is_sent(path):
+                            print(f"[SKIP] {proj_name} 项目周报内容未变，已发送过，跳过")
+                            continue
+                        subject_prefix = "[测试] " if TEST_MODE else ""
+                        if send_project_report_email(proj_name, path, "周报", recipients,
+                                                       subject_prefix=subject_prefix):
+                            sent_log.mark_sent(path, to_emails=recipients,
+                                                subject=f"{subject_prefix}【项目进度】{proj_name} {date_str}",
+                                                report_type="project")
             elif choice == "4":
                 # 仅发送个人周报给指定成员
                 # 收集git提交中所有作者邮箱（去重）

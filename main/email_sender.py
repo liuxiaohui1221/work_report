@@ -214,147 +214,289 @@ def send_email(subject: str, body: str, to_emails: list, attachments: list = Non
         return False
 
 
+# 4 段卡片样式常量（QQ Mail / Gmail / Outlook / 企业微信邮箱均支持）
+RICH_EMAIL_CSS = """
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        line-height: 1.6; color: #1f2937; max-width: 720px; margin: 0 auto; padding: 20px; background: #ffffff; font-size: 14px; }
+.header { border-bottom: 2px solid #e5e7eb; padding-bottom: 12px; margin-bottom: 20px; }
+.header h1 { margin: 0 0 4px 0; font-size: 20px; color: #1e3a8a; }
+.header .meta { color: #6b7280; font-size: 13px; }
+.section { background: #f8fafc; border-left: 4px solid #3b82f6; border-radius: 4px;
+           padding: 14px 18px; margin: 14px 0; }
+.section h3 { margin: 0 0 10px 0; color: #1e40af; font-size: 15px; font-weight: 600; }
+.section.summary { border-left-color: #10b981; }
+.section.summary h3 { color: #047857; }
+.section.plan { border-left-color: #8b5cf6; }
+.section.plan h3 { color: #6d28d9; }
+.section.help { border-left-color: #f59e0b; background: #fffbeb; }
+.section.help h3 { color: #b45309; }
+.item { padding: 8px 0; border-bottom: 1px solid #e5e7eb; line-height: 1.5; }
+.item:last-child { border-bottom: none; }
+.item .src { color: #9ca3af; font-size: 12px; margin-left: 6px; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 10px;
+         font-size: 11px; font-weight: 600; margin-right: 6px; vertical-align: middle; }
+.badge-done { background: #d1fae5; color: #065f46; }
+.badge-progress { background: #dbeafe; color: #1e40af; }
+.badge-blocked { background: #fee2e2; color: #991b1b; }
+.badge-todo { background: #ede9fe; color: #5b21b6; }
+.status { display: inline-block; padding: 4px 14px; border-radius: 16px;
+          font-weight: 600; font-size: 13px; }
+.status-green { background: #d1fae5; color: #065f46; }
+.status-yellow { background: #fef3c7; color: #92400e; }
+.status-red { background: #fee2e2; color: #991b1b; }
+.progress-bar { background: #e5e7eb; height: 8px; border-radius: 4px;
+                overflow: hidden; margin: 8px 0; }
+.progress-fill { background: linear-gradient(90deg, #10b981, #34d399);
+                 height: 100%; border-radius: 4px; }
+.appendix { margin-top: 28px; padding-top: 14px; border-top: 1px dashed #d1d5db; }
+.appendix h4 { margin: 0 0 10px 0; color: #6b7280; font-size: 13px; font-weight: 500; }
+.appendix ul { margin: 0; padding-left: 18px; }
+.appendix li { padding: 3px 0; color: #4b5563; font-size: 12px; }
+.appendix a { color: #2563eb; text-decoration: none; }
+code { background: #f1f5f9; padding: 1px 6px; border-radius: 3px;
+       font-size: 12px; color: #be185d; font-family: 'SF Mono', Consolas, monospace; }
+strong { color: #1f2937; }
+"""
+
+
+def _html_escape(text: str) -> str:
+    """转义 HTML 特殊字符"""
+    return (text.replace('&', '&amp;')
+                .replace('<', '&lt;')
+                .replace('>', '&gt;'))
+
+
+def _render_markdown_inline(text: str) -> str:
+    """渲染 markdown 行内语法：**bold**、`code`、link"""
+    import re
+    # 链接 [text](url)
+    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)',
+                  r'<a href="\2" style="color:#2563eb;text-decoration:none;">\1</a>', text)
+    # 加粗 **text**
+    text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
+    # 行内代码 `code`
+    text = re.sub(r'`([^`]+)`', r'<code>\1</code>', text)
+    return text
+
+
+def _auto_badge(item_text: str, section: str = "done") -> str:
+    """根据条目文本 + section 类型自动分配状态徽章
+
+    section='plan' 时强制 TODO（计划项不是已完成）
+    其他 section 按关键词匹配：调研/规划→PROG，完成/修复→DONE，阻塞→BLOCKED
+    """
+    if section == "plan":
+        # 计划项强制 TODO，无论关键词
+        if '暂无' in item_text or item_text.strip() == '无':
+            return '<span class="badge badge-done">✓ 无</span>'
+        return '<span class="badge badge-todo">TODO</span>'
+    lower = item_text.lower()
+    if '暂无' in item_text or item_text.strip() == '无':
+        return '<span class="badge badge-done">✓ 无</span>'
+    if '调研' in item_text or '预研' in item_text or '规划' in item_text or '选型' in item_text:
+        return '<span class="badge badge-progress">PROG</span>'
+    if '完成' in item_text or '修复' in item_text or '迁移' in item_text or '落地' in item_text:
+        return '<span class="badge badge-done">DONE</span>'
+    if 'TODO' in item_text or 'todo' in lower:
+        return '<span class="badge badge-todo">TODO</span>'
+    if '阻塞' in item_text or '失败' in item_text or '异常' in item_text:
+        return '<span class="badge badge-blocked">BLOCKED</span>'
+    return '<span class="badge badge-progress">PROG</span>'
+
+
+def _split_source(text: str) -> tuple:
+    """把条目文本拆成 (主体内容, 来源标注)"""
+    import re
+    m = re.search(r'（来源[:：]?\s*(.+?)）', text)
+    if m:
+        return text[:m.start()].rstrip(), m.group(1)
+    return text, None
+
+
+def _parse_4section(markdown: str) -> dict:
+    """解析 4 段式 markdown → {section_name: items}"""
+    import re
+    sections = {'done': [], 'summary': '', 'plan': [], 'help': []}
+    current = None
+    for line in markdown.splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        m = re.match(r'^#{2,3}\s*([一二三四])[、\.]\s*(.+)$', s)
+        if m:
+            key = {'一': 'done', '二': 'summary', '三': 'plan', '四': 'help'}[m.group(1)]
+            if key == 'summary':
+                sections['summary'] = ''
+                current = 'summary'
+            else:
+                current = key
+            continue
+        if s.startswith('## 📌') or s.startswith('## 📌'):
+            current = 'appendix'
+            continue
+        if current == 'summary':
+            sections['summary'] = sections['summary'] + ('<br>' if sections['summary'] else '') + s
+        elif current in ('done', 'plan', 'help'):
+            if s.startswith(('- ', '* ')):
+                sections[current].append(s[2:].strip())
+    return sections
+
+
 def build_email_body(report_name: str, report_content: str, date_desc: str) -> str:
-    """构建邮件正文HTML
+    """构建邮件正文HTML（4 段卡片 + 状态徽章 + 进度条 + 协调警告框）
+
+    自动识别 4 段式（一/二/三/四）结构并渲染成富 HTML 卡片。
+    如果不是 4 段式（罕见），降级为基础 markdown 渲染。
 
     Args:
-        report_name: 报告名称
-        report_content: 报告内容（Markdown格式，会转换为HTML显示）
+        report_name: 报告名称（如"刘小辉 周报"）
+        report_content: 报告内容（Markdown）
         date_desc: 日期描述
 
     Returns:
-        str: HTML格式的邮件正文
+        str: HTML 格式邮件正文
     """
     import re
 
-    html_content = report_content
+    # 把 commit 附录（## 📌 本周提交清单）从主内容里分离
+    appendix_match = re.search(r'(##\s*📌.*)', report_content, re.DOTALL)
+    main_content = report_content
+    appendix_md = ''
+    if appendix_match:
+        main_content = report_content[:appendix_match.start()].rstrip()
+        appendix_md = report_content[appendix_match.start():]
 
-    # 转义HTML特殊字符
+    # 4 段式检测
+    section_pattern = re.compile(r'^#{2,3}\s*[一二三四][、\.]', re.MULTILINE)
+    has_4section = bool(section_pattern.search(main_content))
+
+    if not has_4section:
+        return _build_plain_email_body(report_name, report_content, date_desc)
+
+    # 4 段式：富渲染
+    sections = _parse_4section(main_content)
+
+    # 状态灯
+    status_match = re.search(r'(🟢|🟡|🔴)', sections['summary'])
+    status_emoji = status_match.group(1) if status_match else '🟡'
+    status_class = {'🟢': 'status-green', '🟡': 'status-yellow', '🔴': 'status-red'}[status_emoji]
+    status_text = {'🟢': '正常', '🟡': '部分完成', '🔴': '阻塞'}[status_emoji]
+    # 进度条按状态推断
+    progress_pct = {'🟢': 100, '🟡': 60, '🔴': 25}[status_emoji]
+
+    # 渲染完成工作项
+    def render_items(items, kind='done'):
+        if not items:
+            return '<div class="item" style="color:#9ca3af;">（无）</div>'
+        out = []
+        for it in items:
+            badge = _auto_badge(it, section=kind) if kind in ('done', 'plan', 'help') else ''
+            main, src = _split_source(it)
+            main_html = _html_escape(main)
+            main_html = _render_markdown_inline(main_html)
+            src_html = f'<span class="src">（来源：{_html_escape(src)}）</span>' if src else ''
+            out.append(f'<div class="item">{badge}{main_html}{src_html}</div>')
+        return '\n'.join(out)
+
+    summary_html = _render_markdown_inline(_html_escape(sections['summary']))
+
+    # 提交清单 HTML
+    appendix_html = ''
+    if appendix_md:
+        items = []
+        for line in appendix_md.splitlines():
+            s = line.strip()
+            if s.startswith(('- ', '* ')):
+                items.append(s[2:].strip())
+            elif s.startswith('##'):
+                continue
+        if items:
+            lis = '\n'.join(f'<li>{_render_markdown_inline(_html_escape(it))}</li>' for it in items)
+            appendix_html = f'''
+<div class="appendix">
+  <h4>📌 本周提交清单（追溯用）</h4>
+  <ul>{lis}</ul>
+</div>'''
+
+    body = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>{RICH_EMAIL_CSS}</style>
+</head><body>
+<div class="header">
+  <h1>📊 {report_name}</h1>
+  <div class="meta">{date_desc} · 周报</div>
+</div>
+
+<div class="section">
+  <h3>📌 一、本周完成工作</h3>
+  {render_items(sections['done'], 'done')}
+</div>
+
+<div class="section summary">
+  <h3>📈 二、本周总结</h3>
+  <p>{summary_html}</p>
+  <p><span class="status {status_class}">{status_emoji} {status_text}</span></p>
+  <div class="progress-bar"><div class="progress-fill" style="width: {progress_pct}%;"></div></div>
+</div>
+
+<div class="section plan">
+  <h3>🗓️ 三、下周工作计划</h3>
+  {render_items(sections['plan'], 'plan')}
+</div>
+
+<div class="section help">
+  <h3>⚠️ 四、需协调与帮助</h3>
+  {render_items(sections['help'], 'help')}
+</div>
+{appendix_html}
+</body></html>"""
+    return body
+
+
+def _build_plain_email_body(report_name: str, report_content: str, date_desc: str) -> str:
+    """降级版：4 段式识别失败时使用，保留基础 markdown 渲染"""
+    import re
+
+    html_content = report_content
     html_content = html_content.replace('&', '&amp;')
     html_content = html_content.replace('<', '&lt;')
     html_content = html_content.replace('>', '&gt;')
-
-    # 移除分隔线 --- 改为空行
     html_content = re.sub(r'^---+$', '', html_content, flags=re.MULTILINE)
-
-    # 标题 - 缩小字号
     html_content = re.sub(r'^### (.+)$', r'<h4>\1</h4>', html_content, flags=re.MULTILINE)
     html_content = re.sub(r'^## (.+)$', r'<h3>\1</h3>', html_content, flags=re.MULTILINE)
     html_content = re.sub(r'^# (.+)$', r'<h2>\1</h2>', html_content, flags=re.MULTILINE)
-
-    # 列表
     html_content = re.sub(r'^- (.+)$', r'<li>\1</li>', html_content, flags=re.MULTILINE)
     html_content = re.sub(r'^(\d+)\. (.+)$', r'<li>\1. \2</li>', html_content, flags=re.MULTILINE)
     html_content = re.sub(r'(<li>.*</li>\n)+', r'<ul>\g<0></ul>', html_content)
-
-    # 粗体
     html_content = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', html_content)
-
-    # 代码块
     html_content = re.sub(r'```[\w]*\n(.+?)\n```', r'<pre><code>\1</code></pre>', html_content, flags=re.DOTALL)
     html_content = re.sub(r'`(.+?)`', r'<code>\1</code>', html_content)
 
-    # 表格处理 - 将Markdown表格转换为HTML表格
-    def convert_table(match):
-        table_lines = match.group(0).strip().split('\n')
-        if len(table_lines) < 2:
-            return match.group(0)
-
-        # 解析表头和对齐行
-        header_line = table_lines[0]
-        align_line = table_lines[1] if len(table_lines) > 1 else ""
-
-        # 提取表头单元格
-        headers = [h.strip() for h in header_line.split('|') if h.strip()]
-
-        # 判断每列对齐方式
-        aligns = []
-        if '---:' in align_line:
-            aligns = ['right'] * len(headers)
-        elif ':---' in align_line:
-            aligns = ['left'] * len(headers)
-        else:
-            aligns = ['center'] * len(headers)
-
-        # 解析数据行
-        rows = []
-        for i in range(2, len(table_lines)):
-            cells = [c.strip() for c in table_lines[i].split('|') if c.strip()]
-            if cells:
-                rows.append(cells)
-
-        # 构建HTML表格
-        html = '<table style="border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px;">'
-        html += '<thead><tr>'
-        for i, h in enumerate(headers):
-            align = aligns[i] if i < len(aligns) else 'left'
-            html += f'<th style="border: 1px solid #ddd; padding: 8px 10px; text-align: {align}; background-color: #f5f5f5; font-weight: 600;">{h}</th>'
-        html += '</tr></thead><tbody>'
-        for row in rows:
-            html += '<tr>'
-            for i, cell in enumerate(row):
-                align = aligns[i] if i < len(aligns) else 'left'
-                html += f'<td style="border: 1px solid #ddd; padding: 6px 10px; text-align: {align};">{cell}</td>'
-            html += '</tr>'
-        html += '</tbody></table>'
-        return html
-
-    # 匹配整个表格（表头行、对齐行、一到多行数据行）
-    html_content = re.sub(r'(\|.+\|\n\|[-| :]+\|\n(?:\|.+\|\n?)+)', convert_table, html_content)
-
-    # 换行处理 - 保持单换行，双换行才是段落
-    lines = html_content.split('\n')
-    processed_lines = []
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-        if line.startswith('<h') or line.startswith('<ul') or line.startswith('<pre'):
-            processed_lines.append(line)
-        elif line.startswith('<li'):
-            processed_lines.append(line)
-        else:
-            processed_lines.append(f'<p style="margin: 5px 0;">{line}</p>')
-    html_content = '\n'.join(processed_lines)
-
-    # 移除开头的标题（只保留日期和正文）
-    lines = html_content.split('\n')
-    processed_lines = []
-    skip_heading_count = 0
-    for line in lines:
-        # 跳过开头的连续标题（h2/h3/h4），最多跳过前3个
-        if skip_heading_count < 3 and (line.startswith('<h2>') or line.startswith('<h3>') or line.startswith('<h4>')):
-            skip_heading_count += 1
-            continue
-        processed_lines.append(line)
-    html_content = '\n'.join(processed_lines)
-
-    # 包装 - 简洁口语化
     body = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <style>
-            body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.5; color: #333; max-width: 650px; margin: 0 auto; padding: 20px; font-size: 14px; }}
-            h2 {{ color: #2c3e50; font-size: 16px; margin-bottom: 10px; }}
-            h3 {{ color: #34495e; font-size: 14px; margin-top: 15px; margin-bottom: 8px; }}
-            h4 {{ color: #555; font-size: 13px; margin-top: 12px; margin-bottom: 6px; }}
-            p {{ margin: 4px 0; color: #444; }}
-            ul {{ margin: 5px 0; padding-left: 18px; }}
-            li {{ margin: 3px 0; color: #444; }}
-            code {{ background-color: #f5f5f5; padding: 1px 4px; border-radius: 2px; font-size: 12px; }}
-            pre {{ background-color: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto; font-size: 12px; }}
-        </style>
-    </head>
-    <body>
-        <h2>{report_name}</h2>
-        <p style="color: #888; font-size: 12px;">{date_desc}</p>
-        <hr style="border: none; border-top: 1px solid #eee; margin: 10px 0;">
-        <div>{html_content}</div>
-    </body>
-    </html>
-    """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                line-height: 1.5; color: #333; max-width: 650px; margin: 0 auto; padding: 20px; font-size: 14px; }}
+        h2 {{ color: #2c3e50; font-size: 16px; margin-bottom: 10px; }}
+        h3 {{ color: #34495e; font-size: 14px; margin-top: 15px; margin-bottom: 8px; }}
+        h4 {{ color: #555; font-size: 13px; margin-top: 12px; margin-bottom: 6px; }}
+        p {{ margin: 4px 0; color: #444; }}
+        ul {{ margin: 5px 0; padding-left: 18px; }}
+        li {{ margin: 3px 0; color: #444; }}
+        code {{ background-color: #f5f5f5; padding: 1px 4px; border-radius: 2px; font-size: 12px; }}
+    </style>
+</head>
+<body>
+    <h2>{report_name}</h2>
+    <p style="color: #888; font-size: 12px;">{date_desc}</p>
+    <hr style="border: none; border-top: 1px solid #eee; margin: 10px 0;">
+    <div>{html_content}</div>
+</body>
+</html>
+"""
     return body
 
 
@@ -464,13 +606,35 @@ def select_project_report_recipients(project_name: str, project_members: list) -
         return members
 
 
-def send_personal_report_email(member: dict, report_path: str, report_type: str = "日报") -> bool:
+def compute_personal_recipients(member: dict, exclude_from_cc: list = None):
+    """计算个人周报的收件人/抄送列表
+
+    Args:
+        member: 成员信息
+        exclude_from_cc: 排除的邮箱（这些人已经是项目主收件人，避免重复邮件）
+
+    Returns:
+        (to_emails, cc_emails) 元组
+    """
+    to_emails = [member['email']]
+    cc_emails = []
+    if PERSONAL_REPORT_RECIPIENT:
+        cc_list = PERSONAL_REPORT_RECIPIENT if isinstance(PERSONAL_REPORT_RECIPIENT, list) else [PERSONAL_REPORT_RECIPIENT]
+        excluded = set(exclude_from_cc or [])
+        cc_emails = [e for e in cc_list if e != member['email'] and e not in excluded]
+    return to_emails, cc_emails
+
+
+def send_personal_report_email(member: dict, report_path: str, report_type: str = "日报",
+                                exclude_from_cc: list = None, subject_prefix: str = "") -> bool:
     """发送个人报告邮件
 
     Args:
         member: 成员信息字典，包含 name, email 等
         report_path: 报告文件路径
         report_type: 报告类型（日报/周报）
+        exclude_from_cc: 排除的 CC 邮箱列表（避免和项目主收件人重复）
+        subject_prefix: 主题前缀（测试模式加 [测试] 等）
 
     Returns:
         bool: 发送是否成功
@@ -494,18 +658,18 @@ def send_personal_report_email(member: dict, report_path: str, report_type: str 
         desc_match = re.search(r'_(\d{4}-\d{2}-\d{2})_(.+?)\.md$', report_path)
         date_desc = desc_match.group(2) if desc_match else ""
 
-        report_name = f"{member['name']}工作{report_type}"
+        # 2026-08-08 邮件标题改为 {member_name}周报 格式
+        report_name = f"{member['name']}周报"
         # 邮件标题简洁明了
-        subject = f"【{member['name']}】{date_str} {date_desc}"
+        subject = f"{subject_prefix}【{member['name']}周报】{date_str} {date_desc}".strip()
 
         body = build_email_body(report_name, report_content, date_str)
 
-        to_emails = [member['email']]
-        # 如果配置了上级收件人，添加到抄送列表（去重，避免和to_emails重复）
-        cc_emails = []
-        if PERSONAL_REPORT_RECIPIENT:
-            cc_list = PERSONAL_REPORT_RECIPIENT if isinstance(PERSONAL_REPORT_RECIPIENT, list) else [PERSONAL_REPORT_RECIPIENT]
-            cc_emails = [e for e in cc_list if e != member['email']]
+        to_emails, cc_emails = compute_personal_recipients(member, exclude_from_cc)
+        if exclude_from_cc and cc_emails:
+            removed = set(exclude_from_cc) & set(PERSONAL_REPORT_RECIPIENT or [])
+            if removed:
+                print(f"[INFO] 个人周报 CC 去重，排除 {len(removed)} 个项目主收件人: {', '.join(removed)}")
         result = send_email(subject, body, to_emails, attachments=[report_path], cc_emails=cc_emails)
 
         return result
@@ -516,7 +680,7 @@ def send_personal_report_email(member: dict, report_path: str, report_type: str 
 
 
 def send_project_report_email(project_name: str, report_path: str, report_type: str = "日报",
-                               to_emails: list = None) -> bool:
+                               to_emails: list = None, subject_prefix: str = "") -> bool:
     """发送项目报告邮件
 
     Args:
@@ -524,6 +688,7 @@ def send_project_report_email(project_name: str, report_path: str, report_type: 
         report_path: 报告文件路径
         report_type: 报告类型（日报/周报）
         to_emails: 收件人邮箱列表，如果为 None 则不发送
+        subject_prefix: 主题前缀（测试模式加 [测试] 等）
 
     Returns:
         bool: 发送是否成功
@@ -551,9 +716,10 @@ def send_project_report_email(project_name: str, report_path: str, report_type: 
         desc_match = re.search(r'_(\d{4}-\d{2}-\d{2})_(.+?)\.md$', report_path)
         date_desc = desc_match.group(2) if desc_match else ""
 
-        report_name = project_name
+        # 2026-08-08 邮件标题改为 {project_name}项目周报 格式
+        report_name = f"{project_name}项目周报"
         # 邮件标题简洁明了
-        subject = f"【项目进度】{project_name} {date_str} {date_desc}"
+        subject = f"{subject_prefix}【{project_name}项目周报】{date_str} {date_desc}".strip()
 
         body = build_email_body(report_name, report_content, date_str)
 
